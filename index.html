@@ -54,6 +54,17 @@
   .checkRow{ display:flex; align-items:center; gap:8px; font-size:13px; font-weight:700;
     margin:10px 2px 2px; cursor:pointer; }
   .checkRow input{ width:18px; height:18px; accent-color:var(--lav); }
+  #textInput{ width:100%; border:1.5px solid var(--panel); border-radius:10px; padding:9px 10px;
+    font-size:15px; font-family:inherit; color:var(--ink); resize:none; margin:2px 0 6px; background:#fdfbff; }
+  #fontSelect{ width:100%; border:1.5px solid var(--panel); border-radius:10px; padding:9px 10px;
+    font-size:14px; font-family:inherit; color:var(--ink); background:#fdfbff; margin:0 0 4px; }
+  .swRow{ display:flex; align-items:center; gap:7px; margin:8px 0; flex-wrap:wrap; font-size:13px; }
+  .swRow b{ width:3.5em; flex-shrink:0; }
+  #swatches{ display:flex; gap:7px; flex-wrap:wrap; }
+  .sw{ width:27px; height:27px; border-radius:50%; border:2px solid #fff;
+    box-shadow:0 0 0 1.5px #d8c8e2; cursor:pointer; padding:0; }
+  .sw.on{ box-shadow:0 0 0 2.5px var(--lav-dark); }
+  .colorPick{ width:34px; height:30px; border:1.5px solid var(--panel); border-radius:8px; padding:1px; background:#fff; }
   .rowBtns{ display:flex; gap:8px; margin-top:10px; }
   .rowBtns button{ flex:1; border:1.5px solid var(--lav); background:#fff; color:var(--lav-dark);
     border-radius:10px; padding:9px 4px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit; }
@@ -93,8 +104,9 @@
 
   <div id="controls" hidden>
     <div class="seg">
-      <button id="modeFrame" class="on">🔧 枠を調整</button>
-      <button id="modePhoto" disabled>🤏 写真を動かす</button>
+      <button id="modeFrame" class="on">🔧 枠</button>
+      <button id="modePhoto" disabled>🤏 写真</button>
+      <button id="modeText" disabled>✏️ 文字</button>
     </div>
     <div class="sliderRow" id="rowAngle">
       <label>傾き</label><input type="range" id="angleSlider" min="-20" max="20" step="0.2" value="0"><span id="angleVal" style="width:3.2em;text-align:right;font-size:12px;">0°</span>
@@ -105,7 +117,20 @@
     <div class="sliderRow" id="rowZoom" hidden>
       <label>拡大</label><input type="range" id="zoomSlider" min="1" max="4" step="0.01" value="1">
     </div>
-    <label class="checkRow"><input type="checkbox" id="keepDeco" checked> 🫛 キャラや飾りを写真の上に残す</label>
+    <div id="textControls" hidden>
+      <textarea id="textInput" rows="2" placeholder="ここに文字を入力（改行もOK）"></textarea>
+      <select id="fontSelect"></select>
+      <div class="sliderRow"><label>大きさ</label><input type="range" id="textSizeSlider" min="2" max="25" step="0.2" value="8"></div>
+      <div class="sliderRow"><label>カーブ</label><input type="range" id="textCurveSlider" min="-100" max="100" step="1" value="0"></div>
+      <div class="sliderRow"><label>傾き</label><input type="range" id="textAngleSlider" min="-45" max="45" step="0.5" value="0"></div>
+      <div class="swRow"><b>文字色</b><span id="swatches"></span><input type="color" id="textColorPick" class="colorPick" value="#ffffff"></div>
+      <div class="swRow"><b>フチ</b><input type="checkbox" id="textOutlineChk" checked style="width:18px;height:18px;accent-color:var(--lav);"><input type="color" id="outlineColorPick" class="colorPick" value="#8e6aa8"></div>
+      <div class="rowBtns">
+        <button id="btnAddText">➕ 文字を追加</button>
+        <button id="btnDelText" disabled>🗑 この文字を削除</button>
+      </div>
+    </div>
+    <label class="checkRow" id="keepDecoRow"><input type="checkbox" id="keepDeco" checked> 🫛 キャラや飾りを写真の上に残す</label>
     <div class="rowBtns">
       <button id="btnDetect">🔍 枠を自動検出しなおす</button>
     </div>
@@ -134,6 +159,8 @@ const S = {
   photo: null,   // {img, w, h}
   rect: null,    // {cx, cy, w, h, angle(rad), r(px)} フレーム画像ピクセル座標
   ph: { scale: 1, dx: 0, dy: 0 }, // 写真の拡大率(cover基準)と枠ローカル座標での平行移動
+  texts: [],     // {str, fi, size, color, outline, outlineColor, curve, angle, x, y}
+  selText: -1,
   mode: 'frame',
 };
 let lastBlob = null, lastBlobURL = null;
@@ -380,6 +407,168 @@ function buildOverlay(){
   overlayCanvas = c;
 }
 
+/* ============ 文字入れ ============ */
+/* 先頭はiPhone/Macに元から入っている丸ゴシック＝オフラインでも必ず出る。
+   残りはGoogle Fontsから必要な文字ぶんだけ読み込む（文字モードを開いたときに開始） */
+const FONTS = [
+  { label: 'まるゴシック（標準）', fam: '"Hiragino Maru Gothic ProN","Zen Maru Gothic",sans-serif', w: 700, gf: 'Zen+Maru+Gothic:wght@700' },
+  { label: 'キウイ丸（やさしい）', fam: '"Kiwi Maru"', w: 500, gf: 'Kiwi+Maru:wght@500' },
+  { label: 'はちまるポップ（ゆる手書き）', fam: '"Hachi Maru Pop"', w: 400, gf: 'Hachi+Maru+Pop' },
+  { label: 'よもぎ（ほそ手書き）', fam: '"Yomogi"', w: 400, gf: 'Yomogi' },
+  { label: 'マジックペン', fam: '"Yusei Magic"', w: 400, gf: 'Yusei+Magic' },
+  { label: 'もちもちポップ（太め）', fam: '"Mochiy Pop One"', w: 400, gf: 'Mochiy+Pop+One' },
+  { label: 'クレー（きれいな手書き）', fam: '"Klee One"', w: 600, gf: 'Klee+One:wght@600' },
+  { label: 'ごくぶと（インパクト）', fam: '"Dela Gothic One"', w: 400, gf: 'Dela+Gothic+One' },
+  { label: '明朝（上品）', fam: '"Shippori Mincho"', w: 600, gf: 'Shippori+Mincho:wght@600' },
+];
+const PALETTE = ['#ffffff', '#5a4a63', '#8e6aa8', '#e08bb0', '#e8a13c', '#7fae6f', '#6f9ec7', '#e05c5c'];
+let fontCSSLoaded = false;
+function ensureFontCSS(){
+  if (fontCSSLoaded) return;
+  fontCSSLoaded = true;
+  const fams = [...new Set(FONTS.filter(f => f.gf).map(f => 'family=' + f.gf))];
+  const l = document.createElement('link');
+  l.rel = 'stylesheet';
+  l.href = 'https://fonts.googleapis.com/css2?' + fams.join('&') + '&display=swap';
+  document.head.appendChild(l);
+}
+const measCtx = document.createElement('canvas').getContext('2d');
+const selT = () => S.texts[S.selText] || null;
+function fontStr(t){ const f = FONTS[t.fi]; return f.w + ' ' + t.size + 'px ' + f.fam; }
+async function ensureFont(t){
+  ensureFontCSS();
+  const f = FONTS[t.fi];
+  if (f.gf) { try { await document.fonts.load(f.w + ' 32px ' + f.fam, t.str + 'あ0A'); } catch(e){} }
+  draw(); // フォントが届いたら描き直す
+}
+function measureTextT(t){
+  measCtx.font = fontStr(t);
+  const lines = t.str.split('\n');
+  const lh = t.size * 1.25;
+  let wMax = 1;
+  for (const l of lines) wMax = Math.max(wMax, measCtx.measureText(l).width);
+  let sag = 0;
+  if (Math.abs(t.curve) >= 1) {
+    const arc = Math.abs(t.curve) / 100 * Math.PI;
+    sag = wMax / arc * (1 - Math.cos(arc / 2));
+  }
+  t._hw = wMax / 2;
+  t._hh = lh * lines.length / 2 + sag / 2;
+  return { lines, lh };
+}
+/* 1行をアーチ状に描く。curve>0で虹型（上に凸）、<0で谷型 */
+function drawArcLine(c, t, line, y0){
+  const chars = [...line];
+  if (!chars.length) return;
+  const widths = chars.map(ch => c.measureText(ch).width);
+  const total = Math.max(1, widths.reduce((a, b) => a + b, 0));
+  const R = total / (Math.abs(t.curve) / 100 * Math.PI); // curve=100で半円
+  const up = t.curve > 0;
+  let a = -total / (2 * R);
+  for (let i = 0; i < chars.length; i++) {
+    const half = widths[i] / 2 / R;
+    a += half;
+    c.save();
+    c.translate(Math.sin(a) * R, up ? y0 + R * (1 - Math.cos(a)) : y0 - R * (1 - Math.cos(a)));
+    c.rotate(up ? a : -a);
+    if (t.outline) c.strokeText(chars[i], 0, 0);
+    c.fillText(chars[i], 0, 0);
+    c.restore();
+    a += half;
+  }
+}
+function drawOneText(c, t, k){
+  const m = measureTextT(t);
+  if (!t.str.trim()) return;
+  c.save();
+  c.translate(t.x * k, t.y * k);
+  c.rotate(t.angle);
+  c.scale(k, k);
+  c.font = fontStr(t);
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+  c.fillStyle = t.color;
+  if (t.outline) {
+    c.lineWidth = t.size * 0.18;
+    c.lineJoin = 'round';
+    c.strokeStyle = t.outlineColor;
+  }
+  m.lines.forEach((line, li) => {
+    const y0 = (li - (m.lines.length - 1) / 2) * m.lh;
+    if (Math.abs(t.curve) < 1) {
+      if (t.outline) c.strokeText(line, 0, y0);
+      c.fillText(line, 0, y0);
+    } else {
+      drawArcLine(c, t, line, y0);
+    }
+  });
+  c.restore();
+}
+function drawTexts(c, k){ for (const t of S.texts) drawOneText(c, t, k); }
+function localOfText(p, t){
+  const dx = p.x - t.x, dy = p.y - t.y;
+  const co = Math.cos(t.angle), si = Math.sin(t.angle);
+  return { x: dx*co + dy*si, y: -dx*si + dy*co };
+}
+function addText(){
+  if (!S.frame) return;
+  const base = S.rect || { cx: S.frame.w / 2, cy: S.frame.h / 2 };
+  const t = {
+    str: 'テキスト', fi: 0, size: S.frame.w * 0.08,
+    color: '#ffffff', outline: true, outlineColor: '#8e6aa8',
+    curve: 0, angle: 0,
+    x: base.cx, y: base.cy + S.texts.length * S.frame.w * 0.1,
+  };
+  S.texts.push(t);
+  S.selText = S.texts.length - 1;
+  syncTextControls(); updateButtons(); ensureFont(t); draw();
+}
+function syncTextControls(){
+  const t = selT();
+  $('btnDelText').disabled = !t;
+  if (!t) return;
+  $('textInput').value = t.str;
+  $('fontSelect').value = t.fi;
+  $('textSizeSlider').value = (t.size / S.frame.w * 100).toFixed(1);
+  $('textCurveSlider').value = t.curve;
+  $('textAngleSlider').value = (t.angle * 180 / Math.PI).toFixed(1);
+  $('textColorPick').value = t.color;
+  $('textOutlineChk').checked = t.outline;
+  $('outlineColorPick').value = t.outlineColor;
+  markSwatch();
+}
+function markSwatch(){
+  const t = selT();
+  document.querySelectorAll('.sw').forEach(b => b.classList.toggle('on', !!t && b.dataset.c === t.color));
+}
+/* 文字UIの組み立てとイベント */
+FONTS.forEach((f, i) => {
+  const o = document.createElement('option');
+  o.value = i; o.textContent = f.label;
+  $('fontSelect').appendChild(o);
+});
+PALETTE.forEach(cName => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'sw'; b.dataset.c = cName; b.style.background = cName;
+  b.onclick = () => { const t = selT(); if (t) { t.color = cName; $('textColorPick').value = cName; markSwatch(); draw(); } };
+  $('swatches').appendChild(b);
+});
+$('btnAddText').onclick = addText;
+$('btnDelText').onclick = () => {
+  if (S.selText < 0) return;
+  S.texts.splice(S.selText, 1);
+  S.selText = S.texts.length - 1;
+  syncTextControls(); updateButtons(); draw();
+};
+$('textInput').oninput = e => { const t = selT(); if (t) { t.str = e.target.value; draw(); ensureFont(t); } };
+$('fontSelect').onchange = e => { const t = selT(); if (t) { t.fi = +e.target.value; draw(); ensureFont(t); } };
+$('textSizeSlider').oninput = e => { const t = selT(); if (t) { t.size = S.frame.w * parseFloat(e.target.value) / 100; draw(); } };
+$('textCurveSlider').oninput = e => { const t = selT(); if (t) { t.curve = parseFloat(e.target.value); draw(); } };
+$('textAngleSlider').oninput = e => { const t = selT(); if (t) { t.angle = parseFloat(e.target.value) * Math.PI / 180; draw(); } };
+$('textColorPick').oninput = e => { const t = selT(); if (t) { t.color = e.target.value; markSwatch(); draw(); } };
+$('textOutlineChk').onchange = e => { const t = selT(); if (t) { t.outline = e.target.checked; draw(); } };
+$('outlineColorPick').oninput = e => { const t = selT(); if (t) { t.outlineColor = e.target.value; draw(); } };
+
 /* ============ 描画 ============ */
 function roundRectPath(c, x, y, w, h, r){
   r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
@@ -421,6 +610,18 @@ function draw(){
   ctx.clearRect(0, 0, cv.width, cv.height);
   ctx.drawImage(S.frame.img, 0, 0, cv.width, cv.height);
   if (S.photo && S.rect) drawPhotoInto(ctx, k);
+  drawTexts(ctx, k);
+  if (S.mode === 'text' && selT()) {
+    // 選択中の文字のまわりに点線
+    const t = selT();
+    ctx.save();
+    ctx.translate(t.x*k, t.y*k); ctx.rotate(t.angle);
+    ctx.lineWidth = Math.max(2, cv.width / 300);
+    ctx.strokeStyle = 'rgba(142,106,168,.9)';
+    ctx.setLineDash([8, 6]);
+    ctx.strokeRect(-(t._hw+14)*k, -(t._hh+14)*k, (t._hw+14)*2*k, (t._hh+14)*2*k);
+    ctx.restore();
+  }
   if (S.rect && S.mode === 'frame') {
     // 枠の点線とハンドル
     const cs = rectCorners();
@@ -470,6 +671,7 @@ function setFrame(img, name){
   $('placeholder').style.display = 'none';
   $('controls').hidden = false;
   $('btnFrame').classList.add('done');
+  $('modeText').disabled = false;
   setMode(S.photo ? 'photo' : 'frame');
   updateButtons();
   fitCanvas();
@@ -484,7 +686,8 @@ function setPhoto(img){
   updateButtons();
 }
 function updateButtons(){
-  $('btnSave').disabled = !(S.frame && S.photo);
+  // 写真か文字のどちらかが入っていれば保存できる（文字だけの画像もアリ）
+  $('btnSave').disabled = !(S.frame && (S.photo || S.texts.length));
 }
 
 /* ============ 写真のはみ出し防止（枠にすき間を作らない） ============ */
@@ -505,16 +708,23 @@ function setMode(m){
   S.mode = m;
   $('modeFrame').classList.toggle('on', m === 'frame');
   $('modePhoto').classList.toggle('on', m === 'photo');
+  $('modeText').classList.toggle('on', m === 'text');
   $('rowAngle').hidden = $('rowRadius').hidden = (m !== 'frame');
   $('rowZoom').hidden = (m !== 'photo');
+  $('textControls').hidden = (m !== 'text');
+  $('keepDecoRow').hidden = (m === 'text');
   $('btnDetect').parentElement.hidden = (m !== 'frame');
+  if (m === 'text') { ensureFontCSS(); syncTextControls(); }
   $('hintText').textContent = m === 'frame'
     ? '💡 むらさきの丸をドラッグすると枠の大きさ、枠の中をドラッグすると位置を動かせます。合わせた枠は自動で記憶されるので、同じフレームなら次回から調整いらずです。'
-    : '💡 写真をドラッグして位置を、2本指ピンチ（またはスライダー）で大きさを調整できます。よければ「③ 保存」！ 別の写真に差し替えたいときは「② 写真」をもう一度押してください。';
+    : m === 'photo'
+    ? '💡 写真をドラッグして位置を、2本指ピンチ（またはスライダー）で大きさを調整できます。よければ「③ 保存」！ 別の写真に差し替えたいときは「② 写真」をもう一度押してください。'
+    : '💡 「➕ 文字を追加」→下の欄に入力。文字はドラッグで移動、2本指ピンチで大きさ、「カーブ」のスライダーで虹みたいに曲げられます🌈';
   draw();
 }
 $('modeFrame').onclick = () => setMode('frame');
 $('modePhoto').onclick = () => setMode('photo');
+$('modeText').onclick = () => setMode('text');
 
 function syncSliders(){
   if (!S.rect) return;
@@ -614,6 +824,24 @@ cv.addEventListener('pointerdown', e => {
     dragState = { type: 'pinch', dist: Math.hypot(a.x-b.x, a.y-b.y), scale0: S.ph.scale };
     return;
   }
+  if (pointers.size === 2 && S.mode === 'text' && selT()) {
+    const [a, b] = [...pointers.values()];
+    dragState = { type: 'pinchText', dist: Math.hypot(a.x-b.x, a.y-b.y), size0: selT().size };
+    return;
+  }
+  if (S.mode === 'text') {
+    for (let i = S.texts.length - 1; i >= 0; i--) {
+      const t = S.texts[i], l = localOfText(p, t);
+      const pad = S.frame.w * 0.02;
+      if (Math.abs(l.x) < (t._hw || 0) + pad && Math.abs(l.y) < (t._hh || 0) + pad) {
+        S.selText = i; syncTextControls();
+        dragState = { type: 'textMove', off: { x: p.x - t.x, y: p.y - t.y } };
+        draw();
+        return;
+      }
+    }
+    return;
+  }
   if (S.mode === 'frame') {
     const k = scaleK();
     const cs = rectCorners();
@@ -649,6 +877,22 @@ cv.addEventListener('pointermove', e => {
     clampPan(); draw();
     return;
   }
+  if (dragState.type === 'pinchText' && pointers.size === 2) {
+    const t = selT();
+    if (t) {
+      const [a, b] = [...pointers.values()];
+      const d = Math.hypot(a.x-b.x, a.y-b.y);
+      t.size = Math.min(S.frame.w*0.25, Math.max(S.frame.w*0.02, dragState.size0 * d / dragState.dist));
+      $('textSizeSlider').value = (t.size / S.frame.w * 100).toFixed(1);
+      draw();
+    }
+    return;
+  }
+  if (dragState.type === 'textMove') {
+    const t = selT();
+    if (t) { t.x = p.x - dragState.off.x; t.y = p.y - dragState.off.y; draw(); }
+    return;
+  }
   if (dragState.type === 'corner') {
     const O = dragState.opp;
     const vx = p.x - O.x, vy = p.y - O.y;
@@ -678,6 +922,7 @@ function endPointer(e){
   else if (dragState && dragState.type === 'pinch' && pointers.size === 1) {
     dragState = { type: 'pan', last: [...pointers.values()][0] };
   }
+  else if (dragState && dragState.type === 'pinchText') dragState = null;
 }
 cv.addEventListener('pointerup', endPointer);
 cv.addEventListener('pointercancel', endPointer);
@@ -697,6 +942,7 @@ function renderExport(){
   const x = c.getContext('2d');
   x.drawImage(S.frame.img, 0, 0);
   if (S.photo && S.rect) drawPhotoInto(x, 1);
+  drawTexts(x, 1);
   return c;
 }
 function exportName(){
@@ -735,6 +981,8 @@ window.__test = {
   async loadFrame(url){ setFrame(await loadImg(url), url.split('/').pop()); },
   async loadPhoto(url){ setPhoto(await loadImg(url)); },
   rect: () => S.rect,
+  texts: () => S.texts,
+  addText,
   exportDataURL: () => renderExport().toDataURL('image/png'),
 };
 </script>
