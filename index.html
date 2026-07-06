@@ -117,6 +117,12 @@
     <div class="sliderRow" id="rowZoom" hidden>
       <label>拡大</label><input type="range" id="zoomSlider" min="1" max="4" step="0.01" value="1">
     </div>
+    <div class="sliderRow" id="rowBright" hidden>
+      <label>明るさ</label><input type="range" id="brightSlider" min="-100" max="100" step="1" value="0">
+    </div>
+    <div class="sliderRow" id="rowWarm" hidden>
+      <label>暖かさ</label><input type="range" id="warmSlider" min="-100" max="100" step="1" value="0">
+    </div>
     <div id="textControls" hidden>
       <textarea id="textInput" rows="2" placeholder="ここに文字を入力（改行もOK）"></textarea>
       <select id="fontSelect"></select>
@@ -159,6 +165,7 @@ const S = {
   photo: null,   // {img, w, h}
   rect: null,    // {cx, cy, w, h, angle(rad), r(px)} フレーム画像ピクセル座標
   ph: { scale: 1, dx: 0, dy: 0 }, // 写真の拡大率(cover基準)と枠ローカル座標での平行移動
+  adj: { bright: 0, warm: 0 },    // 写真の明るさ・色温度（-100〜100）
   texts: [],     // {str, fi, size, color, outline, outlineColor, curve, angle, x, y}
   selText: -1,
   mode: 'frame',
@@ -591,6 +598,23 @@ function drawPhotoInto(c, k){
   c.drawImage(S.photo.img,
     S.ph.dx*k - S.photo.w*s/2, S.ph.dy*k - S.photo.h*s/2,
     S.photo.w*s, S.photo.h*s);
+  // 明るさ・暖かさ（クリップ内＝写真の範囲だけに色レイヤーを重ねる。
+  // ctx.filter非対応のブラウザでも動くよう合成モードで実現）
+  const { bright, warm } = S.adj;
+  if (bright) {
+    const v = Math.round(Math.abs(bright) / 100 * 140);
+    c.globalCompositeOperation = bright > 0 ? 'screen' : 'multiply';
+    c.fillStyle = bright > 0 ? `rgb(${v},${v},${v})` : `rgb(${255-v},${255-v},${255-v})`;
+    c.fillRect(-w/2*k, -h/2*k, w*k, h*k);
+  }
+  if (warm) {
+    c.globalCompositeOperation = 'soft-light';
+    c.globalAlpha = Math.min(1, Math.abs(warm) / 100 * 0.9);
+    c.fillStyle = warm > 0 ? 'rgb(255,138,48)' : 'rgb(64,140,255)';
+    c.fillRect(-w/2*k, -h/2*k, w*k, h*k);
+    c.globalAlpha = 1;
+  }
+  c.globalCompositeOperation = 'source-over';
   c.restore();
   // 前面レイヤー（キャラ・マステ等）を写真の上に描き戻す
   if (overlayCanvas && $('keepDeco').checked)
@@ -680,6 +704,9 @@ function setFrame(img, name){
 function setPhoto(img){
   S.photo = { img, w: img.naturalWidth, h: img.naturalHeight };
   S.ph = { scale: 1, dx: 0, dy: 0 };
+  S.adj = { bright: 0, warm: 0 };
+  $('brightSlider').value = 0;
+  $('warmSlider').value = 0;
   $('modePhoto').disabled = false;
   $('btnPhoto').classList.add('done');
   if (S.frame) { setMode('photo'); clampPan(); draw(); }
@@ -710,7 +737,7 @@ function setMode(m){
   $('modePhoto').classList.toggle('on', m === 'photo');
   $('modeText').classList.toggle('on', m === 'text');
   $('rowAngle').hidden = $('rowRadius').hidden = (m !== 'frame');
-  $('rowZoom').hidden = (m !== 'photo');
+  $('rowZoom').hidden = $('rowBright').hidden = $('rowWarm').hidden = (m !== 'photo');
   $('textControls').hidden = (m !== 'text');
   $('keepDecoRow').hidden = (m === 'text');
   $('btnDetect').parentElement.hidden = (m !== 'frame');
@@ -718,7 +745,7 @@ function setMode(m){
   $('hintText').textContent = m === 'frame'
     ? '💡 むらさきの丸をドラッグすると枠の大きさ、枠の中をドラッグすると位置を動かせます。合わせた枠は自動で記憶されるので、同じフレームなら次回から調整いらずです。'
     : m === 'photo'
-    ? '💡 写真をドラッグして位置を、2本指ピンチ（またはスライダー）で大きさを調整できます。よければ「③ 保存」！ 別の写真に差し替えたいときは「② 写真」をもう一度押してください。'
+    ? '💡 写真をドラッグして位置を、2本指ピンチ（またはスライダー）で大きさを調整。「明るさ」「暖かさ」で写真の雰囲気も変えられます。別の写真にしたいときは「② 写真」をもう一度。'
     : '💡 「➕ 文字を追加」→下の欄に入力。文字はドラッグで移動、2本指ピンチで大きさ、「カーブ」のスライダーで虹みたいに曲げられます🌈';
   draw();
 }
@@ -748,6 +775,8 @@ $('zoomSlider').oninput = e => {
   S.ph.scale = parseFloat(e.target.value);
   clampPan(); draw();
 };
+$('brightSlider').oninput = e => { S.adj.bright = parseFloat(e.target.value); draw(); };
+$('warmSlider').oninput = e => { S.adj.warm = parseFloat(e.target.value); draw(); };
 $('btnDetect').onclick = () => {
   if (!S.frame) return;
   const det = detectPanel(S.frame.img);
