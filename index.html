@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>フレーム写真ツール</title>
+<style>
+  :root{
+    --lav:#b89ac9; --lav-dark:#8e6aa8; --cream:#fdf6ec; --panel:#f3e9f5;
+    --ink:#5a4a63; --accent:#e8b4c8;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  [hidden]{ display:none !important; }
+  html,body{ margin:0; padding:0; background:var(--cream); color:var(--ink);
+    font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif;
+    overscroll-behavior:none; }
+  header{ text-align:center; padding:14px 10px 6px; font-size:19px; font-weight:700;
+    color:var(--lav-dark); letter-spacing:.06em; }
+  header small{ display:block; font-size:11px; font-weight:400; color:#a08db0; margin-top:2px; }
+  main{ max-width:560px; margin:0 auto; padding:0 12px 30px; }
+
+  .steps{ display:flex; gap:8px; margin:8px 0 10px; }
+  .btn{ flex:1; display:flex; align-items:center; justify-content:center; text-align:center;
+    background:#fff; border:2px solid var(--lav); color:var(--lav-dark); border-radius:14px;
+    padding:12px 4px; font-size:14px; font-weight:700; cursor:pointer; user-select:none;
+    box-shadow:0 2px 6px rgba(140,110,170,.12); }
+  .btn:active{ transform:scale(.97); }
+  .btn.primary{ background:var(--lav); color:#fff; border-color:var(--lav); }
+  .btn.done{ border-color:#9cc79c; color:#5f8f5f; }
+  .btn[disabled]{ opacity:.4; pointer-events:none; }
+
+  #canvasWrap{ position:relative; border-radius:16px; overflow:hidden;
+    background:repeating-conic-gradient(#ece2f0 0 25%, #f8f2fa 0 50%) 0 0/24px 24px;
+    box-shadow:0 4px 14px rgba(140,110,170,.18); min-height:200px; }
+  #canvasWrap.drag{ outline:3px dashed var(--lav); outline-offset:-6px; }
+  #cv{ display:block; width:100%; height:auto; touch-action:none; }
+  #placeholder{ position:absolute; inset:0; display:flex; flex-direction:column; gap:6px;
+    align-items:center; justify-content:center; text-align:center; font-size:14px;
+    color:#a08db0; padding:30px; pointer-events:none; }
+  #placeholder .big{ font-size:34px; }
+
+  #controls{ margin-top:12px; background:#fff; border-radius:16px; padding:12px 14px;
+    box-shadow:0 2px 10px rgba(140,110,170,.12); }
+  .seg{ display:flex; background:var(--panel); border-radius:12px; padding:4px; gap:4px; margin-bottom:10px; }
+  .seg button{ flex:1; border:0; background:transparent; border-radius:9px; padding:10px 4px;
+    font-size:14px; font-weight:700; color:#a08db0; cursor:pointer; font-family:inherit; }
+  .seg button.on{ background:#fff; color:var(--lav-dark); box-shadow:0 1px 4px rgba(140,110,170,.25); }
+  .seg button[disabled]{ opacity:.4; }
+  .sliderRow{ display:flex; align-items:center; gap:10px; font-size:13px; margin:8px 0; }
+  .sliderRow label{ width:3.5em; flex-shrink:0; font-weight:700; }
+  .sliderRow input[type=range]{ flex:1; accent-color:var(--lav); height:28px; }
+  .rowBtns{ display:flex; gap:8px; margin-top:10px; }
+  .rowBtns button{ flex:1; border:1.5px solid var(--lav); background:#fff; color:var(--lav-dark);
+    border-radius:10px; padding:9px 4px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit; }
+  .hint{ font-size:12px; color:#a08db0; margin:10px 2px 0; line-height:1.7; }
+
+  #modal{ position:fixed; inset:0; background:rgba(90,74,99,.45); display:none;
+    align-items:center; justify-content:center; padding:16px; z-index:10; }
+  #modal.show{ display:flex; }
+  #modalCard{ background:#fff; border-radius:18px; padding:16px; max-width:420px; width:100%;
+    max-height:92vh; overflow:auto; text-align:center; }
+  #modalCard h3{ margin:2px 0 10px; color:var(--lav-dark); font-size:16px; }
+  #resultImg{ width:100%; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,.15); }
+  #modalCard .rowBtns{ margin-top:12px; }
+  #modalCard .rowBtns .main{ background:var(--lav); color:#fff; }
+  #modalCard .note{ font-size:11px; color:#a08db0; margin-top:8px; }
+</style>
+</head>
+<body>
+<header>🌿 フレーム写真ツール
+  <small>フレームの枠に写真をはめて、インスタ用画像を作ります（画像はどこにも送信されません）</small>
+</header>
+<main>
+  <div class="steps">
+    <label class="btn" id="btnFrame">① フレーム<input type="file" id="frameInput" accept="image/*" hidden></label>
+    <label class="btn" id="btnPhoto">② 写真<input type="file" id="photoInput" accept="image/*" hidden></label>
+    <button class="btn primary" id="btnSave" disabled>③ 保存</button>
+  </div>
+
+  <div id="canvasWrap">
+    <canvas id="cv" width="10" height="10"></canvas>
+    <div id="placeholder">
+      <span class="big">🖼️</span>
+      「① フレーム」からフレーム画像を選んでください<br>
+      （パソコンならここにドラッグ＆ドロップでもOK）
+    </div>
+  </div>
+
+  <div id="controls" hidden>
+    <div class="seg">
+      <button id="modeFrame" class="on">🔧 枠を調整</button>
+      <button id="modePhoto" disabled>🤏 写真を動かす</button>
+    </div>
+    <div class="sliderRow" id="rowAngle">
+      <label>傾き</label><input type="range" id="angleSlider" min="-20" max="20" step="0.2" value="0"><span id="angleVal" style="width:3.2em;text-align:right;font-size:12px;">0°</span>
+    </div>
+    <div class="sliderRow" id="rowRadius">
+      <label>角丸</label><input type="range" id="radiusSlider" min="0" max="30" step="0.5" value="5">
+    </div>
+    <div class="sliderRow" id="rowZoom" hidden>
+      <label>拡大</label><input type="range" id="zoomSlider" min="1" max="4" step="0.01" value="1">
+    </div>
+    <div class="rowBtns">
+      <button id="btnDetect">🔍 枠を自動検出しなおす</button>
+    </div>
+    <p class="hint" id="hintText">💡 むらさきの丸をドラッグすると枠の大きさ、枠の中をドラッグすると位置を動かせます。合わせた枠は自動で記憶されるので、同じフレームなら次回から調整いらずです。</p>
+  </div>
+</main>
+
+<div id="modal">
+  <div id="modalCard">
+    <h3>✅ できあがり！</h3>
+    <img id="resultImg" alt="完成画像">
+    <div class="rowBtns">
+      <button id="btnShare" class="main" hidden>📲 写真に保存 / 共有</button>
+      <button id="btnDownload">⬇️ ダウンロード</button>
+      <button id="btnClose">閉じる</button>
+    </div>
+    <p class="note">iPhoneでうまく保存できないときは、上の画像を長押し →「"写真"に追加」でも保存できます。</p>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ============ 状態 ============ */
+const S = {
+  frame: null,   // {img, w, h, key, name}
+  photo: null,   // {img, w, h}
+  rect: null,    // {cx, cy, w, h, angle(rad), r(px)} フレーム画像ピクセル座標
+  ph: { scale: 1, dx: 0, dy: 0 }, // 写真の拡大率(cover基準)と枠ローカル座標での平行移動
+  mode: 'frame',
+};
+let lastBlob = null, lastBlobURL = null;
+
+const $ = id => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d');
+const wrap = $('canvasWrap');
+
+/* ============ 画像読み込み ============ */
+function loadImg(src){
+  return new Promise((ok, ng) => {
+    const im = new Image();
+    im.onload = () => ok(im);
+    im.onerror = ng;
+    im.src = src;
+  });
+}
+async function loadFromFile(file){
+  const url = URL.createObjectURL(file);
+  try { return await loadImg(url); }
+  finally { setTimeout(() => URL.revokeObjectURL(url), 5000); }
+}
+
+/* フレームの指紋（同じフレームを記憶するためのキー） */
+function frameKey(img){
+  const c = document.createElement('canvas'); c.width = 8; c.height = 8;
+  const x = c.getContext('2d'); x.drawImage(img, 0, 0, 8, 8);
+  const d = x.getImageData(0, 0, 8, 8).data;
+  let h = 0;
+  for (let i = 0; i < d.length; i += 4)
+    h = (h * 31 + (d[i] >> 4) + (d[i+1] >> 4) * 17 + (d[i+2] >> 4) * 29) | 0;
+  return 'frameTool:' + img.naturalWidth + 'x' + img.naturalHeight + ':' + h;
+}
+
+/* ============ 枠の自動検出 ============ */
+/* 画像の中央付近から「種の色に近いピクセル」を洪水法で広げ、
+   端に触れていない大きな均一領域＝写真を入れるパネルとみなす。
+   （淡い水彩フレームは背景と枠の色差が小さいので、許容差は狭く・種の色と直接比較する） */
+function detectPanel(img){
+  const maxDim = 480;
+  const sc = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.max(2, Math.round(img.naturalWidth * sc));
+  const h = Math.max(2, Math.round(img.naturalHeight * sc));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.drawImage(img, 0, 0, w, h);
+  const d = x.getImageData(0, 0, w, h).data;
+  const TOLS = [8, 11, 14, 18]; // 色の許容差（小→大）
+  const regionAt = TOLS.map(() => new Int32Array(w * h).fill(-1));
+  const results = [];
+  let best = null;
+
+  function floodAt(ti, sx, sy){
+    const seed = sy * w + sx;
+    if (regionAt[ti][seed] >= 0) return results[regionAt[ti][seed]]; // 同じ領域は再計算しない
+    const tol = TOLS[ti];
+    const mark = regionAt[ti];
+    const id = results.length;
+    const r0 = d[seed*4], g0 = d[seed*4+1], b0 = d[seed*4+2];
+    const stack = [seed];
+    mark[seed] = id;
+    let n = 0, touches = false;
+    const pts = [];
+    while (stack.length) {
+      const i = stack.pop();
+      const px = i % w, py = (i / w) | 0;
+      pts.push(i); n++;
+      if (px === 0 || py === 0 || px === w-1 || py === h-1) touches = true;
+      for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const nx = px + dx, ny = py + dy;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const j = ny * w + nx;
+        if (mark[j] >= 0) continue;
+        if (Math.abs(d[j*4] - r0) < tol && Math.abs(d[j*4+1] - g0) < tol && Math.abs(d[j*4+2] - b0) < tol) {
+          mark[j] = id;
+          stack.push(j);
+        }
+      }
+    }
+    const res = { n, touches, pts };
+    results.push(res);
+    return res;
+  }
+
+  // 回転を含む最小外接矩形（角度を振って最小面積を探す）
+  function minAreaRect(pts, wImg){
+    const step = Math.max(1, Math.floor(pts.length / 4000));
+    const P = [];
+    for (let i = 0; i < pts.length; i += step)
+      P.push([pts[i] % wImg, (pts[i] / wImg) | 0]);
+    let fit = null;
+    for (let deg = -20; deg <= 20; deg += 0.4) {
+      const t = deg * Math.PI / 180, co = Math.cos(t), si = Math.sin(t);
+      let mnU = Infinity, mxU = -Infinity, mnV = Infinity, mxV = -Infinity;
+      for (const [px, py] of P) {
+        const u = px*co + py*si, v = -px*si + py*co;
+        if (u < mnU) mnU = u; if (u > mxU) mxU = u;
+        if (v < mnV) mnV = v; if (v > mxV) mxV = v;
+      }
+      const area = (mxU-mnU) * (mxV-mnV);
+      if (!fit || area < fit.area) fit = { area, t, co, si, mnU, mxU, mnV, mxV };
+    }
+    return fit;
+  }
+
+  // パネルはだいたい中央寄りにあるので、中央周辺の5x5グリッドから種を撒く。
+  // 淡い色同士で境界が曖昧なため、許容差を小→大に広げながら領域サイズを観察し、
+  // 「急にサイズが跳ねる（＝背景に漏れた）」直前の安定した領域を採用する。
+  const total = w * h;
+  for (const fy of [0.3, 0.4, 0.5, 0.6, 0.7]) {
+    for (const fx of [0.3, 0.4, 0.5, 0.6, 0.7]) {
+      const sx = Math.round(w * fx), sy = Math.round(h * fy);
+      let chosen = null;
+      for (let ti = 0; ti < TOLS.length; ti++) {
+        const reg = floodAt(ti, sx, sy);
+        const valid = !reg.touches && reg.n >= total * 0.08 && reg.n <= total * 0.82;
+        if (!chosen) { if (valid) chosen = reg; continue; }
+        if (!valid) break;
+        if (reg.n > chosen.n * 1.25) break; // 急拡大＝境界を越えて漏れた
+        chosen = reg;
+      }
+      if (!chosen) continue;
+      if (!chosen.fit) chosen.fit = minAreaRect(chosen.pts, w);
+      const rectFill = chosen.n / Math.max(1, chosen.fit.area);
+      if (rectFill < 0.7) continue; // 矩形に埋まらない形→枠ではない
+      if (!best || chosen.n > best.n) best = { n: chosen.n, pts: chosen.pts, fit: chosen.fit };
+    }
+  }
+
+  if (!best) {
+    // 検出できないフレーム（全面柄など）→ 中央にデフォルト枠
+    return { cx: img.naturalWidth/2, cy: img.naturalHeight/2,
+             w: img.naturalWidth*0.72, h: img.naturalHeight*0.6, angle: 0 };
+  }
+
+  const fit = best.fit;
+  const cu = (fit.mnU + fit.mxU) / 2, cvv = (fit.mnV + fit.mxV) / 2;
+  const cxS = cu*fit.co - cvv*fit.si, cyS = cu*fit.si + cvv*fit.co;
+  const inv = 1 / sc;
+  return {
+    cx: cxS * inv, cy: cyS * inv,
+    w: (fit.mxU - fit.mnU) * inv * 0.99,  // 白フチに食い込まないよう少し内側に
+    h: (fit.mxV - fit.mnV) * inv * 0.99,
+    angle: fit.t,
+  };
+}
+
+/* ============ 枠の記憶（localStorage） ============ */
+let saveTimer = null;
+function scheduleSaveRect(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    if (!S.frame || !S.rect) return;
+    const F = S.frame, R = S.rect;
+    try {
+      localStorage.setItem(F.key, JSON.stringify({
+        cx: R.cx/F.w, cy: R.cy/F.h, w: R.w/F.w, h: R.h/F.h,
+        angle: R.angle, rPct: R.r / Math.max(1, Math.min(R.w, R.h)),
+      }));
+    } catch(e){ /* プライベートモード等では記憶しないだけ */ }
+  }, 400);
+}
+function loadSavedRect(){
+  try {
+    const raw = localStorage.getItem(S.frame.key);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    const w = v.w * S.frame.w, h = v.h * S.frame.h;
+    return { cx: v.cx*S.frame.w, cy: v.cy*S.frame.h, w, h,
+             angle: v.angle, r: v.rPct * Math.min(w, h) };
+  } catch(e){ return null; }
+}
+
+/* ============ 描画 ============ */
+function roundRectPath(c, x, y, w, h, r){
+  r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+  c.beginPath();
+  c.moveTo(x+r, y);
+  c.arcTo(x+w, y,   x+w, y+h, r);
+  c.arcTo(x+w, y+h, x,   y+h, r);
+  c.arcTo(x,   y+h, x,   y,   r);
+  c.arcTo(x,   y,   x+w, y,   r);
+  c.closePath();
+}
+function drawPhotoInto(c, k){
+  const { cx, cy, w, h, angle, r } = S.rect;
+  c.save();
+  c.translate(cx*k, cy*k); c.rotate(angle);
+  roundRectPath(c, -w/2*k, -h/2*k, w*k, h*k, r*k);
+  c.clip();
+  const cover = Math.max(w / S.photo.w, h / S.photo.h);
+  const s = cover * S.ph.scale * k;
+  c.drawImage(S.photo.img,
+    S.ph.dx*k - S.photo.w*s/2, S.ph.dy*k - S.photo.h*s/2,
+    S.photo.w*s, S.photo.h*s);
+  c.restore();
+}
+function rectCorners(){
+  const { cx, cy, w, h, angle } = S.rect;
+  const co = Math.cos(angle), si = Math.sin(angle);
+  return [[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2]]
+    .map(([x,y]) => ({ x: cx + x*co - y*si, y: cy + x*si + y*co }));
+}
+function scaleK(){ return cv.width / S.frame.w; }
+
+function draw(){
+  if (!S.frame) return;
+  const k = scaleK();
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(S.frame.img, 0, 0, cv.width, cv.height);
+  if (S.photo && S.rect) drawPhotoInto(ctx, k);
+  if (S.rect && S.mode === 'frame') {
+    // 枠の点線とハンドル
+    const cs = rectCorners();
+    ctx.save();
+    ctx.lineWidth = Math.max(2, cv.width / 300);
+    ctx.strokeStyle = 'rgba(142,106,168,.95)';
+    ctx.setLineDash([10, 7]);
+    ctx.beginPath();
+    cs.forEach((p, i) => i ? ctx.lineTo(p.x*k, p.y*k) : ctx.moveTo(p.x*k, p.y*k));
+    ctx.closePath(); ctx.stroke();
+    ctx.setLineDash([]);
+    const hr = Math.max(9, cv.width / 55);
+    for (const p of cs) {
+      ctx.beginPath(); ctx.arc(p.x*k, p.y*k, hr, 0, 7);
+      ctx.fillStyle = '#fff'; ctx.fill();
+      ctx.lineWidth = Math.max(2.5, cv.width / 260);
+      ctx.strokeStyle = '#8e6aa8'; ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function fitCanvas(){
+  if (!S.frame) return;
+  const cssW = wrap.clientWidth || 500;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const innerW = Math.min(1400, Math.round(cssW * dpr));
+  cv.width = innerW;
+  cv.height = Math.round(innerW * S.frame.h / S.frame.w);
+  draw();
+}
+window.addEventListener('resize', fitCanvas);
+
+/* ============ フレーム/写真セット ============ */
+function setFrame(img, name){
+  S.frame = { img, w: img.naturalWidth, h: img.naturalHeight, key: frameKey(img), name: name || 'frame' };
+  const saved = loadSavedRect();
+  if (saved) {
+    S.rect = saved;
+  } else {
+    const det = detectPanel(img);
+    S.rect = { ...det, r: Math.min(det.w, det.h) * 0.05 };
+  }
+  S.ph = { scale: 1, dx: 0, dy: 0 };
+  syncSliders();
+  $('placeholder').style.display = 'none';
+  $('controls').hidden = false;
+  $('btnFrame').classList.add('done');
+  setMode(S.photo ? 'photo' : 'frame');
+  updateButtons();
+  fitCanvas();
+  scheduleSaveRect();
+}
+function setPhoto(img){
+  S.photo = { img, w: img.naturalWidth, h: img.naturalHeight };
+  S.ph = { scale: 1, dx: 0, dy: 0 };
+  $('modePhoto').disabled = false;
+  $('btnPhoto').classList.add('done');
+  if (S.frame) { setMode('photo'); clampPan(); draw(); }
+  updateButtons();
+}
+function updateButtons(){
+  $('btnSave').disabled = !(S.frame && S.photo);
+}
+
+/* ============ 写真のはみ出し防止（枠にすき間を作らない） ============ */
+function clampPan(){
+  if (!S.photo || !S.rect) return;
+  const { w, h } = S.rect;
+  const cover = Math.max(w / S.photo.w, h / S.photo.h);
+  const s = cover * S.ph.scale;
+  const mx = Math.max(0, (S.photo.w * s - w) / 2);
+  const my = Math.max(0, (S.photo.h * s - h) / 2);
+  S.ph.dx = Math.min(mx, Math.max(-mx, S.ph.dx));
+  S.ph.dy = Math.min(my, Math.max(-my, S.ph.dy));
+}
+
+/* ============ モード切替・スライダー ============ */
+function setMode(m){
+  if (m === 'photo' && !S.photo) m = 'frame';
+  S.mode = m;
+  $('modeFrame').classList.toggle('on', m === 'frame');
+  $('modePhoto').classList.toggle('on', m === 'photo');
+  $('rowAngle').hidden = $('rowRadius').hidden = (m !== 'frame');
+  $('rowZoom').hidden = (m !== 'photo');
+  $('btnDetect').parentElement.hidden = (m !== 'frame');
+  $('hintText').textContent = m === 'frame'
+    ? '💡 むらさきの丸をドラッグすると枠の大きさ、枠の中をドラッグすると位置を動かせます。合わせた枠は自動で記憶されるので、同じフレームなら次回から調整いらずです。'
+    : '💡 写真をドラッグして位置を、2本指ピンチ（またはスライダー）で大きさを調整できます。よければ「③ 保存」！';
+  draw();
+}
+$('modeFrame').onclick = () => setMode('frame');
+$('modePhoto').onclick = () => setMode('photo');
+
+function syncSliders(){
+  if (!S.rect) return;
+  $('angleSlider').value = (S.rect.angle * 180 / Math.PI).toFixed(1);
+  $('angleVal').textContent = (S.rect.angle * 180 / Math.PI).toFixed(1) + '°';
+  $('radiusSlider').value = (S.rect.r / Math.max(1, Math.min(S.rect.w, S.rect.h)) * 100).toFixed(1);
+  $('zoomSlider').value = S.ph.scale;
+}
+$('angleSlider').oninput = e => {
+  if (!S.rect) return;
+  S.rect.angle = parseFloat(e.target.value) * Math.PI / 180;
+  $('angleVal').textContent = parseFloat(e.target.value).toFixed(1) + '°';
+  clampPan(); draw(); scheduleSaveRect();
+};
+$('radiusSlider').oninput = e => {
+  if (!S.rect) return;
+  S.rect.r = parseFloat(e.target.value) / 100 * Math.min(S.rect.w, S.rect.h);
+  draw(); scheduleSaveRect();
+};
+$('zoomSlider').oninput = e => {
+  S.ph.scale = parseFloat(e.target.value);
+  clampPan(); draw();
+};
+$('btnDetect').onclick = () => {
+  if (!S.frame) return;
+  const det = detectPanel(S.frame.img);
+  S.rect = { ...det, r: Math.min(det.w, det.h) * 0.05 };
+  S.ph = { scale: 1, dx: 0, dy: 0 };
+  syncSliders(); clampPan(); draw(); scheduleSaveRect();
+};
+
+/* ============ ファイル選択・ドラッグ&ドロップ ============ */
+$('frameInput').onchange = async e => {
+  if (e.target.files[0]) setFrame(await loadFromFile(e.target.files[0]), e.target.files[0].name);
+  e.target.value = '';
+};
+$('photoInput').onchange = async e => {
+  if (e.target.files[0]) setPhoto(await loadFromFile(e.target.files[0]));
+  e.target.value = '';
+};
+['dragover', 'dragenter'].forEach(ev => wrap.addEventListener(ev, e => {
+  e.preventDefault(); wrap.classList.add('drag');
+}));
+['dragleave', 'drop'].forEach(ev => wrap.addEventListener(ev, e => {
+  e.preventDefault(); wrap.classList.remove('drag');
+}));
+wrap.addEventListener('drop', async e => {
+  const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
+  if (!files.length) return;
+  if (files.length >= 2) {
+    setFrame(await loadFromFile(files[0]), files[0].name);
+    setPhoto(await loadFromFile(files[1]));
+  } else if (!S.frame) {
+    setFrame(await loadFromFile(files[0]), files[0].name);
+  } else {
+    setPhoto(await loadFromFile(files[0]));
+  }
+});
+
+/* ============ ポインタ操作（マウス・タッチ共通） ============ */
+const pointers = new Map();
+let dragState = null;
+
+function toFrameXY(e){
+  const r = cv.getBoundingClientRect();
+  const k = scaleK();
+  return {
+    x: (e.clientX - r.left) * (cv.width / r.width) / k,
+    y: (e.clientY - r.top) * (cv.height / r.height) / k,
+  };
+}
+function localOf(p){
+  const { cx, cy, angle } = S.rect;
+  const dx = p.x - cx, dy = p.y - cy;
+  const co = Math.cos(angle), si = Math.sin(angle);
+  return { x: dx*co + dy*si, y: -dx*si + dy*co };
+}
+
+cv.addEventListener('pointerdown', e => {
+  if (!S.frame || !S.rect) return;
+  cv.setPointerCapture(e.pointerId);
+  const p = toFrameXY(e);
+  pointers.set(e.pointerId, p);
+  e.preventDefault();
+
+  if (pointers.size === 2 && S.mode === 'photo') {
+    const [a, b] = [...pointers.values()];
+    dragState = { type: 'pinch', dist: Math.hypot(a.x-b.x, a.y-b.y), scale0: S.ph.scale };
+    return;
+  }
+  if (S.mode === 'frame') {
+    const k = scaleK();
+    const cs = rectCorners();
+    const hitR = Math.max(9, cv.width / 55) / k * 1.6;
+    for (let i = 0; i < 4; i++) {
+      if (Math.hypot(p.x - cs[i].x, p.y - cs[i].y) < hitR) {
+        dragState = { type: 'corner', opp: cs[(i+2) % 4] };
+        return;
+      }
+    }
+    const l = localOf(p);
+    if (Math.abs(l.x) < S.rect.w/2 && Math.abs(l.y) < S.rect.h/2) {
+      dragState = { type: 'move', off: { x: p.x - S.rect.cx, y: p.y - S.rect.cy } };
+    }
+  } else if (S.mode === 'photo' && S.photo) {
+    dragState = { type: 'pan', last: p };
+  }
+});
+
+cv.addEventListener('pointermove', e => {
+  if (!dragState || !pointers.has(e.pointerId)) return;
+  const p = toFrameXY(e);
+  pointers.set(e.pointerId, p);
+  e.preventDefault();
+  const R = S.rect;
+  const co = Math.cos(R.angle), si = Math.sin(R.angle);
+
+  if (dragState.type === 'pinch' && pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    const d = Math.hypot(a.x-b.x, a.y-b.y);
+    S.ph.scale = Math.min(4, Math.max(1, dragState.scale0 * d / dragState.dist));
+    $('zoomSlider').value = S.ph.scale;
+    clampPan(); draw();
+    return;
+  }
+  if (dragState.type === 'corner') {
+    const O = dragState.opp;
+    const vx = p.x - O.x, vy = p.y - O.y;
+    const lu = vx*co + vy*si, lv = -vx*si + vy*co;
+    R.w = Math.max(40, Math.abs(lu));
+    R.h = Math.max(40, Math.abs(lv));
+    R.cx = O.x + (lu/2)*co - (lv/2)*si;
+    R.cy = O.y + (lu/2)*si + (lv/2)*co;
+    R.r = parseFloat($('radiusSlider').value) / 100 * Math.min(R.w, R.h);
+    clampPan(); draw(); scheduleSaveRect();
+  } else if (dragState.type === 'move') {
+    R.cx = p.x - dragState.off.x;
+    R.cy = p.y - dragState.off.y;
+    draw(); scheduleSaveRect();
+  } else if (dragState.type === 'pan') {
+    const dx = p.x - dragState.last.x, dy = p.y - dragState.last.y;
+    S.ph.dx += dx*co + dy*si;
+    S.ph.dy += -dx*si + dy*co;
+    dragState.last = p;
+    clampPan(); draw();
+  }
+});
+
+function endPointer(e){
+  pointers.delete(e.pointerId);
+  if (pointers.size === 0) dragState = null;
+  else if (dragState && dragState.type === 'pinch' && pointers.size === 1) {
+    dragState = { type: 'pan', last: [...pointers.values()][0] };
+  }
+}
+cv.addEventListener('pointerup', endPointer);
+cv.addEventListener('pointercancel', endPointer);
+
+cv.addEventListener('wheel', e => {
+  if (!S.photo || !S.rect) return;
+  e.preventDefault();
+  S.ph.scale = Math.min(4, Math.max(1, S.ph.scale * Math.exp(-e.deltaY * 0.0015)));
+  $('zoomSlider').value = S.ph.scale;
+  clampPan(); draw();
+}, { passive: false });
+
+/* ============ 書き出し ============ */
+function renderExport(){
+  const c = document.createElement('canvas');
+  c.width = S.frame.w; c.height = S.frame.h;
+  const x = c.getContext('2d');
+  x.drawImage(S.frame.img, 0, 0);
+  if (S.photo && S.rect) drawPhotoInto(x, 1);
+  return c;
+}
+function exportName(){
+  const d = new Date();
+  const z = n => String(n).padStart(2, '0');
+  return `フレーム合成_${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}.png`;
+}
+$('btnSave').onclick = () => {
+  renderExport().toBlob(blob => {
+    lastBlob = blob;
+    if (lastBlobURL) URL.revokeObjectURL(lastBlobURL);
+    lastBlobURL = URL.createObjectURL(blob);
+    $('resultImg').src = lastBlobURL;
+    const f = new File([blob], exportName(), { type: 'image/png' });
+    $('btnShare').hidden = !(navigator.canShare && navigator.canShare({ files: [f] }));
+    $('modal').classList.add('show');
+  }, 'image/png');
+};
+$('btnShare').onclick = async () => {
+  if (!lastBlob) return;
+  try {
+    await navigator.share({ files: [new File([lastBlob], exportName(), { type: 'image/png' })] });
+  } catch(e){ /* キャンセルは無視 */ }
+};
+$('btnDownload').onclick = () => {
+  if (!lastBlobURL) return;
+  const a = document.createElement('a');
+  a.href = lastBlobURL; a.download = exportName();
+  document.body.appendChild(a); a.click(); a.remove();
+};
+$('btnClose').onclick = () => $('modal').classList.remove('show');
+$('modal').addEventListener('click', e => { if (e.target === $('modal')) $('btnClose').onclick(); });
+
+/* ============ 動作確認用フック（通常利用では使わない） ============ */
+window.__test = {
+  async loadFrame(url){ setFrame(await loadImg(url), url.split('/').pop()); },
+  async loadPhoto(url){ setPhoto(await loadImg(url)); },
+  rect: () => S.rect,
+  exportDataURL: () => renderExport().toDataURL('image/png'),
+};
+</script>
+</body>
+</html>
