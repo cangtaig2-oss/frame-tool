@@ -51,6 +51,9 @@
   .sliderRow{ display:flex; align-items:center; gap:10px; font-size:13px; margin:8px 0; }
   .sliderRow label{ width:3.5em; flex-shrink:0; font-weight:700; }
   .sliderRow input[type=range]{ flex:1; accent-color:var(--lav); height:28px; }
+  .checkRow{ display:flex; align-items:center; gap:8px; font-size:13px; font-weight:700;
+    margin:10px 2px 2px; cursor:pointer; }
+  .checkRow input{ width:18px; height:18px; accent-color:var(--lav); }
   .rowBtns{ display:flex; gap:8px; margin-top:10px; }
   .rowBtns button{ flex:1; border:1.5px solid var(--lav); background:#fff; color:var(--lav-dark);
     border-radius:10px; padding:9px 4px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit; }
@@ -74,8 +77,8 @@
 </header>
 <main>
   <div class="steps">
-    <label class="btn" id="btnFrame">① フレーム<input type="file" id="frameInput" accept="image/*" hidden></label>
-    <label class="btn" id="btnPhoto">② 写真<input type="file" id="photoInput" accept="image/*" hidden></label>
+    <label class="btn" id="btnFrame">① フレーム<input type="file" id="frameInput" accept="image/*,.heic,.heif" hidden></label>
+    <label class="btn" id="btnPhoto">② 写真<input type="file" id="photoInput" accept="image/*,.heic,.heif" hidden></label>
     <button class="btn primary" id="btnSave" disabled>③ 保存</button>
   </div>
 
@@ -102,6 +105,7 @@
     <div class="sliderRow" id="rowZoom" hidden>
       <label>拡大</label><input type="range" id="zoomSlider" min="1" max="4" step="0.01" value="1">
     </div>
+    <label class="checkRow"><input type="checkbox" id="keepDeco" checked> 🫛 キャラや飾りを写真の上に残す</label>
     <div class="rowBtns">
       <button id="btnDetect">🔍 枠を自動検出しなおす</button>
     </div>
@@ -151,6 +155,26 @@ async function loadFromFile(file){
   const url = URL.createObjectURL(file);
   try { return await loadImg(url); }
   finally { setTimeout(() => URL.revokeObjectURL(url), 5000); }
+}
+
+function loadScript(src){
+  return new Promise((ok, ng) => {
+    const s = document.createElement('script');
+    s.onload = ok; s.onerror = ng; s.src = src;
+    document.head.appendChild(s);
+  });
+}
+/* HEIC等ブラウザが直接読めない形式は、その場で変換してから読む（変換もこの端末内で完結） */
+async function decodeImageFile(file){
+  try { return await loadFromFile(file); }
+  catch(e){ /* 直接読めない形式 → HEIC変換を試す */ }
+  if (!window.heic2any)
+    await loadScript('https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js');
+  const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
+  return await loadFromFile(Array.isArray(out) ? out[0] : out);
+}
+function alertReadFail(){
+  alert('この画像を読み込めませんでした🙏\n・電波の届く場所でもう一度試す\n・iPhoneなら、写真を選ぶ画面でスクリーンショットや別の写真を試す\nで直ることが多いです。');
 }
 
 /* フレームの指紋（同じフレームを記憶するためのキー） */
@@ -283,6 +307,8 @@ function scheduleSaveRect(){
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     if (!S.frame || !S.rect) return;
+    buildOverlay(); // 枠が動いたら前面レイヤーも作り直す
+    draw();
     const F = S.frame, R = S.rect;
     try {
       localStorage.setItem(F.key, JSON.stringify({
@@ -301,6 +327,57 @@ function loadSavedRect(){
     return { cx: v.cx*S.frame.w, cy: v.cy*S.frame.h, w, h,
              angle: v.angle, r: v.rPct * Math.min(w, h) };
   } catch(e){ return null; }
+}
+
+/* ============ 前面レイヤー（キャラ・マステ等の切り出し） ============ */
+/* 枠の中でパネルの地の色と明らかに違うピクセル＝上に重なっている飾りとみなし、
+   写真より前面に描き直す。これで「前に出てるものは前」のまま合成できる。 */
+let overlayCanvas = null;
+function buildOverlay(){
+  overlayCanvas = null;
+  if (!S.frame || !S.rect) return;
+  const W = S.frame.w, H = S.frame.h;
+  if (W * H > 6000000) return; // 巨大画像は安全のため省略
+  const { cx, cy, w, h, angle } = S.rect;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.drawImage(S.frame.img, 0, 0);
+  const id = x.getImageData(0, 0, W, H), d = id.data;
+  const co = Math.cos(angle), si = Math.sin(angle);
+  // パネルの地の色＝枠中央付近からサンプリングした中央値（飾りに引っ張られない）
+  const sm = [[], [], []];
+  for (let i = 0; i < 500; i++) {
+    const lx = (Math.random() - 0.5) * w * 0.5, ly = (Math.random() - 0.5) * h * 0.5;
+    const px = Math.round(cx + lx*co - ly*si), py = Math.round(cy + lx*si + ly*co);
+    if (px < 0 || py < 0 || px >= W || py >= H) continue;
+    const j = (py*W + px) * 4;
+    sm[0].push(d[j]); sm[1].push(d[j+1]); sm[2].push(d[j+2]);
+  }
+  if (!sm[0].length) return;
+  const med = sm.map(a => a.sort((p, q) => p - q)[a.length >> 1]);
+  const cs = rectCorners();
+  const bx0 = Math.max(0, Math.floor(Math.min(...cs.map(p => p.x))));
+  const bx1 = Math.min(W-1, Math.ceil(Math.max(...cs.map(p => p.x))));
+  const by0 = Math.max(0, Math.floor(Math.min(...cs.map(p => p.y))));
+  const by1 = Math.min(H-1, Math.ceil(Math.max(...cs.map(p => p.y))));
+  const t0 = 25, t1 = 50; // 地の色との差がこの範囲で徐々に「飾り」判定（紙の質感は拾わない）
+  for (let py = 0; py < H; py++) {
+    for (let px = 0; px < W; px++) {
+      const j = (py*W + px) * 4;
+      let a = 0;
+      if (px >= bx0 && px <= bx1 && py >= by0 && py <= by1) {
+        const dx = px - cx, dy = py - cy;
+        const lx = dx*co + dy*si, ly = -dx*si + dy*co;
+        if (Math.abs(lx) <= w/2 && Math.abs(ly) <= h/2) {
+          const dist = Math.max(Math.abs(d[j]-med[0]), Math.abs(d[j+1]-med[1]), Math.abs(d[j+2]-med[2]));
+          a = Math.max(0, Math.min(1, (dist - t0) / (t1 - t0)));
+        }
+      }
+      d[j+3] = a * 255;
+    }
+  }
+  x.putImageData(id, 0, 0);
+  overlayCanvas = c;
 }
 
 /* ============ 描画 ============ */
@@ -326,6 +403,9 @@ function drawPhotoInto(c, k){
     S.ph.dx*k - S.photo.w*s/2, S.ph.dy*k - S.photo.h*s/2,
     S.photo.w*s, S.photo.h*s);
   c.restore();
+  // 前面レイヤー（キャラ・マステ等）を写真の上に描き戻す
+  if (overlayCanvas && $('keepDeco').checked)
+    c.drawImage(overlayCanvas, 0, 0, S.frame.w*k, S.frame.h*k);
 }
 function rectCorners(){
   const { cx, cy, w, h, angle } = S.rect;
@@ -385,6 +465,7 @@ function setFrame(img, name){
     S.rect = { ...det, r: Math.min(det.w, det.h) * 0.05 };
   }
   S.ph = { scale: 1, dx: 0, dy: 0 };
+  buildOverlay();
   syncSliders();
   $('placeholder').style.display = 'none';
   $('controls').hidden = false;
@@ -429,7 +510,7 @@ function setMode(m){
   $('btnDetect').parentElement.hidden = (m !== 'frame');
   $('hintText').textContent = m === 'frame'
     ? '💡 むらさきの丸をドラッグすると枠の大きさ、枠の中をドラッグすると位置を動かせます。合わせた枠は自動で記憶されるので、同じフレームなら次回から調整いらずです。'
-    : '💡 写真をドラッグして位置を、2本指ピンチ（またはスライダー）で大きさを調整できます。よければ「③ 保存」！';
+    : '💡 写真をドラッグして位置を、2本指ピンチ（またはスライダー）で大きさを調整できます。よければ「③ 保存」！ 別の写真に差し替えたいときは「② 写真」をもう一度押してください。';
   draw();
 }
 $('modeFrame').onclick = () => setMode('frame');
@@ -462,17 +543,23 @@ $('btnDetect').onclick = () => {
   const det = detectPanel(S.frame.img);
   S.rect = { ...det, r: Math.min(det.w, det.h) * 0.05 };
   S.ph = { scale: 1, dx: 0, dy: 0 };
+  buildOverlay();
   syncSliders(); clampPan(); draw(); scheduleSaveRect();
 };
+$('keepDeco').onchange = () => draw();
 
 /* ============ ファイル選択・ドラッグ&ドロップ ============ */
 $('frameInput').onchange = async e => {
-  if (e.target.files[0]) setFrame(await loadFromFile(e.target.files[0]), e.target.files[0].name);
-  e.target.value = '';
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try { setFrame(await decodeImageFile(f), f.name); }
+  catch(err){ alertReadFail(); }
 };
 $('photoInput').onchange = async e => {
-  if (e.target.files[0]) setPhoto(await loadFromFile(e.target.files[0]));
-  e.target.value = '';
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try { setPhoto(await decodeImageFile(f)); }
+  catch(err){ alertReadFail(); }
 };
 ['dragover', 'dragenter'].forEach(ev => wrap.addEventListener(ev, e => {
   e.preventDefault(); wrap.classList.add('drag');
@@ -481,16 +568,19 @@ $('photoInput').onchange = async e => {
   e.preventDefault(); wrap.classList.remove('drag');
 }));
 wrap.addEventListener('drop', async e => {
-  const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
+  const files = [...e.dataTransfer.files]
+    .filter(f => f.type.startsWith('image/') || /\.hei[cf]$/i.test(f.name));
   if (!files.length) return;
-  if (files.length >= 2) {
-    setFrame(await loadFromFile(files[0]), files[0].name);
-    setPhoto(await loadFromFile(files[1]));
-  } else if (!S.frame) {
-    setFrame(await loadFromFile(files[0]), files[0].name);
-  } else {
-    setPhoto(await loadFromFile(files[0]));
-  }
+  try {
+    if (files.length >= 2) {
+      setFrame(await decodeImageFile(files[0]), files[0].name);
+      setPhoto(await decodeImageFile(files[1]));
+    } else if (!S.frame) {
+      setFrame(await decodeImageFile(files[0]), files[0].name);
+    } else {
+      setPhoto(await decodeImageFile(files[0]));
+    }
+  } catch(err){ alertReadFail(); }
 });
 
 /* ============ ポインタ操作（マウス・タッチ共通） ============ */
