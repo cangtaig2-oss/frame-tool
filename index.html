@@ -98,6 +98,7 @@
     <div id="placeholder">
       <span class="big">🖼️</span>
       「① フレーム」からフレーム画像を選んでください<br>
+      背景除去や明るさ調整だけしたいときは<br>「② 写真」から直接どうぞ<br>
       （パソコンならここにドラッグ＆ドロップでもOK）
     </div>
   </div>
@@ -250,7 +251,7 @@ async function cutBackground(){
     S.photoOrig = S.photo; // 「元に戻す」用にとっておく
     S.photo = { img, w: img.naturalWidth, h: img.naturalHeight };
     $('btnRestoreBg').hidden = false;
-    draw();
+    fitCanvas(); // 写真だけモードでは解像度が変わるため作り直し
     hint.textContent = '✂️ 背景を消しました！透けた部分にはフレームの地の色が見えます。「↩️ 元に戻す」でいつでも戻せます。';
   } catch(e) {
     hint.textContent = oldHint;
@@ -267,7 +268,7 @@ $('btnRestoreBg').onclick = () => {
   S.photo = S.photoOrig;
   S.photoOrig = null;
   $('btnRestoreBg').hidden = true;
-  draw();
+  fitCanvas();
 };
 
 /* フレームの指紋（同じフレームを記憶するためのキー） */
@@ -646,6 +647,37 @@ function roundRectPath(c, x, y, w, h, r){
   c.arcTo(x,   y,   x+w, y,   r);
   c.closePath();
 }
+/* 明るさ・暖かさを適用した写真（元のアルファ＝透明部分は保つ）。値が同じ間はキャッシュ */
+let adjCache = null;
+function adjustedPhoto(){
+  const { bright, warm } = S.adj;
+  if (!bright && !warm) return S.photo.img;
+  if (adjCache && adjCache.img === S.photo.img && adjCache.bright === bright && adjCache.warm === warm)
+    return adjCache.canvas;
+  const c = document.createElement('canvas');
+  c.width = S.photo.w; c.height = S.photo.h;
+  const x = c.getContext('2d');
+  x.drawImage(S.photo.img, 0, 0);
+  if (bright) {
+    const v = Math.round(Math.abs(bright) / 100 * 140);
+    x.globalCompositeOperation = bright > 0 ? 'screen' : 'multiply';
+    x.fillStyle = bright > 0 ? `rgb(${v},${v},${v})` : `rgb(${255-v},${255-v},${255-v})`;
+    x.fillRect(0, 0, c.width, c.height);
+  }
+  if (warm) {
+    x.globalCompositeOperation = 'soft-light';
+    x.globalAlpha = Math.min(1, Math.abs(warm) / 100 * 0.9);
+    x.fillStyle = warm > 0 ? 'rgb(255,138,48)' : 'rgb(64,140,255)';
+    x.fillRect(0, 0, c.width, c.height);
+    x.globalAlpha = 1;
+  }
+  // 元のアルファを復元（切り抜き済み写真の透明部分に色が乗らないように）
+  x.globalCompositeOperation = 'destination-in';
+  x.drawImage(S.photo.img, 0, 0);
+  x.globalCompositeOperation = 'source-over';
+  adjCache = { img: S.photo.img, bright, warm, canvas: c };
+  return c;
+}
 function drawPhotoInto(c, k){
   const { cx, cy, w, h, angle, r } = S.rect;
   c.save();
@@ -654,26 +686,9 @@ function drawPhotoInto(c, k){
   c.clip();
   const cover = Math.max(w / S.photo.w, h / S.photo.h);
   const s = cover * S.ph.scale * k;
-  c.drawImage(S.photo.img,
+  c.drawImage(adjustedPhoto(),
     S.ph.dx*k - S.photo.w*s/2, S.ph.dy*k - S.photo.h*s/2,
     S.photo.w*s, S.photo.h*s);
-  // 明るさ・暖かさ（クリップ内＝写真の範囲だけに色レイヤーを重ねる。
-  // ctx.filter非対応のブラウザでも動くよう合成モードで実現）
-  const { bright, warm } = S.adj;
-  if (bright) {
-    const v = Math.round(Math.abs(bright) / 100 * 140);
-    c.globalCompositeOperation = bright > 0 ? 'screen' : 'multiply';
-    c.fillStyle = bright > 0 ? `rgb(${v},${v},${v})` : `rgb(${255-v},${255-v},${255-v})`;
-    c.fillRect(-w/2*k, -h/2*k, w*k, h*k);
-  }
-  if (warm) {
-    c.globalCompositeOperation = 'soft-light';
-    c.globalAlpha = Math.min(1, Math.abs(warm) / 100 * 0.9);
-    c.fillStyle = warm > 0 ? 'rgb(255,138,48)' : 'rgb(64,140,255)';
-    c.fillRect(-w/2*k, -h/2*k, w*k, h*k);
-    c.globalAlpha = 1;
-  }
-  c.globalCompositeOperation = 'source-over';
   c.restore();
   // 前面レイヤー（キャラ・マステ等）を写真の上に描き戻す
   if (overlayCanvas && $('keepDeco').checked)
@@ -685,12 +700,22 @@ function rectCorners(){
   return [[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2]]
     .map(([x,y]) => ({ x: cx + x*co - y*si, y: cy + x*si + y*co }));
 }
-function scaleK(){ return cv.width / S.frame.w; }
+/* 基準座標系＝フレームがあればフレーム、なければ写真そのもの */
+function baseDims(){
+  return S.frame ? { w: S.frame.w, h: S.frame.h }
+       : S.photo ? { w: S.photo.w, h: S.photo.h } : null;
+}
+function scaleK(){ return cv.width / baseDims().w; }
 
 function draw(){
-  if (!S.frame) return;
+  if (!baseDims()) return;
   const k = scaleK();
   ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!S.frame) {
+    // 写真だけモード：透明部分は市松模様が透けて見える
+    ctx.drawImage(adjustedPhoto(), 0, 0, cv.width, cv.height);
+    return;
+  }
   ctx.drawImage(S.frame.img, 0, 0, cv.width, cv.height);
   if (S.photo && S.rect) drawPhotoInto(ctx, k);
   drawTexts(ctx, k);
@@ -728,12 +753,13 @@ function draw(){
 }
 
 function fitCanvas(){
-  if (!S.frame) return;
+  const B = baseDims();
+  if (!B) return;
   const cssW = wrap.clientWidth || 500;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const innerW = Math.min(1400, Math.round(cssW * dpr));
   cv.width = innerW;
-  cv.height = Math.round(innerW * S.frame.h / S.frame.w);
+  cv.height = Math.round(innerW * B.h / B.w);
   draw();
 }
 window.addEventListener('resize', fitCanvas);
@@ -755,6 +781,7 @@ function setFrame(img, name){
   $('controls').hidden = false;
   $('btnFrame').classList.add('done');
   $('modeText').disabled = false;
+  $('modeFrame').disabled = false;
   setMode(S.photo ? 'photo' : 'frame');
   updateButtons();
   fitCanvas();
@@ -770,12 +797,18 @@ function setPhoto(img){
   $('warmSlider').value = 0;
   $('modePhoto').disabled = false;
   $('btnPhoto').classList.add('done');
-  if (S.frame) { setMode('photo'); clampPan(); draw(); }
+  // フレームなし＝写真だけモードでも表示・加工できる
+  $('placeholder').style.display = 'none';
+  $('controls').hidden = false;
+  $('modeFrame').disabled = !S.frame;
+  setMode('photo');
+  if (S.frame) clampPan();
+  fitCanvas();
   updateButtons();
 }
 function updateButtons(){
-  // 写真か文字のどちらかが入っていれば保存できる（文字だけの画像もアリ）
-  $('btnSave').disabled = !(S.frame && (S.photo || S.texts.length));
+  // フレームあり＝写真か文字が入れば保存可。フレームなし＝写真だけでも保存可（加工写真として）
+  $('btnSave').disabled = !(S.frame ? (S.photo || S.texts.length) : S.photo);
 }
 
 /* ============ 写真のはみ出し防止（枠にすき間を作らない） ============ */
@@ -798,7 +831,8 @@ function setMode(m){
   $('modePhoto').classList.toggle('on', m === 'photo');
   $('modeText').classList.toggle('on', m === 'text');
   $('rowAngle').hidden = $('rowRadius').hidden = (m !== 'frame');
-  $('rowZoom').hidden = $('rowBright').hidden = $('rowWarm').hidden = $('rowCutBg').hidden = (m !== 'photo');
+  $('rowBright').hidden = $('rowWarm').hidden = $('rowCutBg').hidden = (m !== 'photo');
+  $('rowZoom').hidden = (m !== 'photo' || !S.frame); // 拡大はフレームに写真をはめる時だけ意味がある
   $('textControls').hidden = (m !== 'text');
   $('keepDecoRow').hidden = (m === 'text');
   $('btnDetect').parentElement.hidden = (m !== 'frame');
@@ -806,7 +840,9 @@ function setMode(m){
   $('hintText').textContent = m === 'frame'
     ? '💡 むらさきの丸をドラッグすると枠の大きさ、枠の中をドラッグすると位置を動かせます。合わせた枠は自動で記憶されるので、同じフレームなら次回から調整いらずです。'
     : m === 'photo'
-    ? '💡 写真をドラッグして位置を、2本指ピンチ（またはスライダー）で大きさを調整。「明るさ」「暖かさ」で写真の雰囲気も変えられます。別の写真にしたいときは「② 写真」をもう一度。'
+    ? (S.frame
+      ? '💡 写真をドラッグして位置を、2本指ピンチ（またはスライダー）で大きさを調整。「明るさ」「暖かさ」で写真の雰囲気も変えられます。別の写真にしたいときは「② 写真」をもう一度。'
+      : '💡 明るさ・暖かさ・背景除去だけ使って「③ 保存」すると、加工した写真として保存できます（背景除去なら透過PNG）。フレームに入れたくなったら「① フレーム」をどうぞ。')
     : '💡 「➕ 文字を追加」→下の欄に入力。文字はドラッグで移動、2本指ピンチで大きさ、「カーブ」のスライダーで虹みたいに曲げられます🌈';
   draw();
 }
@@ -1028,8 +1064,14 @@ cv.addEventListener('wheel', e => {
 /* ============ 書き出し ============ */
 function renderExport(){
   const c = document.createElement('canvas');
-  c.width = S.frame.w; c.height = S.frame.h;
   const x = c.getContext('2d');
+  if (!S.frame) {
+    // 写真だけモード：加工した写真をそのまま（透明部分は透過PNGとして）書き出す
+    c.width = S.photo.w; c.height = S.photo.h;
+    x.drawImage(adjustedPhoto(), 0, 0);
+    return c;
+  }
+  c.width = S.frame.w; c.height = S.frame.h;
   x.drawImage(S.frame.img, 0, 0);
   if (S.photo && S.rect) drawPhotoInto(x, 1);
   drawTexts(x, 1);
@@ -1038,7 +1080,8 @@ function renderExport(){
 function exportName(){
   const d = new Date();
   const z = n => String(n).padStart(2, '0');
-  return `フレーム合成_${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}.png`;
+  const pre = S.frame ? 'フレーム合成' : '写真加工';
+  return `${pre}_${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}.png`;
 }
 $('btnSave').onclick = () => {
   renderExport().toBlob(blob => {
