@@ -123,6 +123,10 @@
     <div class="sliderRow" id="rowWarm" hidden>
       <label>暖かさ</label><input type="range" id="warmSlider" min="-100" max="100" step="1" value="0">
     </div>
+    <div class="rowBtns" id="rowCutBg" hidden>
+      <button id="btnCutBg">✂️ 背景を消す</button>
+      <button id="btnRestoreBg" hidden>↩️ 元に戻す</button>
+    </div>
     <div id="textControls" hidden>
       <textarea id="textInput" rows="2" placeholder="ここに文字を入力（改行もOK）"></textarea>
       <select id="fontSelect"></select>
@@ -210,6 +214,61 @@ async function decodeImageFile(file){
 function alertReadFail(){
   alert('この画像を読み込めませんでした🙏\n・電波の届く場所でもう一度試す\n・iPhoneなら、写真を選ぶ画面でスクリーンショットや別の写真を試す\nで直ることが多いです。');
 }
+
+/* ============ 背景除去（AI切り抜き・端末内で完結） ============ */
+let bgRemovalMod = null;
+async function cutBackground(){
+  if (!S.photo || S.busyCutBg) return;
+  S.busyCutBg = true;
+  const btn = $('btnCutBg'), hint = $('hintText');
+  const oldLabel = btn.textContent, oldHint = hint.textContent;
+  btn.disabled = true;
+  btn.textContent = '✂️ 準備中…';
+  try {
+    if (!bgRemovalMod) {
+      hint.textContent = '✂️ AIの部品をダウンロード中…（初回だけ1〜2分かかります。2回目からは速いです）';
+      bgRemovalMod = await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1/+esm');
+    }
+    // 大きすぎる写真は縮小してから渡す（スマホのメモリ対策・十分な画質）
+    const maxDim = 2000;
+    const sc = Math.min(1, maxDim / Math.max(S.photo.w, S.photo.h));
+    const c = document.createElement('canvas');
+    c.width = Math.round(S.photo.w * sc); c.height = Math.round(S.photo.h * sc);
+    c.getContext('2d').drawImage(S.photo.img, 0, 0, c.width, c.height);
+    const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+    const out = await bgRemovalMod.removeBackground(blob, {
+      progress: (key, cur, total) => {
+        if (!total) return;
+        const pct = Math.round(cur / total * 100);
+        hint.textContent = key.startsWith('fetch')
+          ? `✂️ AIの部品をダウンロード中… ${pct}%`
+          : `✂️ 切り抜き中… ${pct}%`;
+        btn.textContent = `✂️ ${pct}%`;
+      },
+    });
+    const img = await loadFromFile(out);
+    S.photoOrig = S.photo; // 「元に戻す」用にとっておく
+    S.photo = { img, w: img.naturalWidth, h: img.naturalHeight };
+    $('btnRestoreBg').hidden = false;
+    draw();
+    hint.textContent = '✂️ 背景を消しました！透けた部分にはフレームの地の色が見えます。「↩️ 元に戻す」でいつでも戻せます。';
+  } catch(e) {
+    hint.textContent = oldHint;
+    alert('背景の切り抜きに失敗しました🙏\n電波の良い場所で、もう一度「✂️ 背景を消す」を押してみてください。');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldLabel;
+    S.busyCutBg = false;
+  }
+}
+$('btnCutBg').onclick = cutBackground;
+$('btnRestoreBg').onclick = () => {
+  if (!S.photoOrig) return;
+  S.photo = S.photoOrig;
+  S.photoOrig = null;
+  $('btnRestoreBg').hidden = true;
+  draw();
+};
 
 /* フレームの指紋（同じフレームを記憶するためのキー） */
 function frameKey(img){
@@ -705,6 +764,8 @@ function setPhoto(img){
   S.photo = { img, w: img.naturalWidth, h: img.naturalHeight };
   S.ph = { scale: 1, dx: 0, dy: 0 };
   S.adj = { bright: 0, warm: 0 };
+  S.photoOrig = null;
+  $('btnRestoreBg').hidden = true;
   $('brightSlider').value = 0;
   $('warmSlider').value = 0;
   $('modePhoto').disabled = false;
@@ -737,7 +798,7 @@ function setMode(m){
   $('modePhoto').classList.toggle('on', m === 'photo');
   $('modeText').classList.toggle('on', m === 'text');
   $('rowAngle').hidden = $('rowRadius').hidden = (m !== 'frame');
-  $('rowZoom').hidden = $('rowBright').hidden = $('rowWarm').hidden = (m !== 'photo');
+  $('rowZoom').hidden = $('rowBright').hidden = $('rowWarm').hidden = $('rowCutBg').hidden = (m !== 'photo');
   $('textControls').hidden = (m !== 'text');
   $('keepDecoRow').hidden = (m === 'text');
   $('btnDetect').parentElement.hidden = (m !== 'frame');
