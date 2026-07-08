@@ -51,6 +51,7 @@
   .sliderRow{ display:flex; align-items:center; gap:10px; font-size:13px; margin:8px 0; }
   .sliderRow label{ width:3.5em; flex-shrink:0; font-weight:700; }
   .sliderRow input[type=range]{ flex:1; accent-color:var(--lav); height:28px; }
+  .sliderRow.adj label{ width:96px; font-size:12px; }
   .checkRow{ display:flex; align-items:center; gap:8px; font-size:13px; font-weight:700;
     margin:10px 2px 2px; cursor:pointer; }
   .checkRow input{ width:18px; height:18px; accent-color:var(--lav); }
@@ -118,11 +119,17 @@
     <div class="sliderRow" id="rowZoom" hidden>
       <label>拡大</label><input type="range" id="zoomSlider" min="1" max="4" step="0.01" value="1">
     </div>
-    <div class="sliderRow" id="rowBright" hidden>
-      <label>明るさ</label><input type="range" id="brightSlider" min="-100" max="100" step="1" value="0">
-    </div>
-    <div class="sliderRow" id="rowWarm" hidden>
-      <label>暖かさ</label><input type="range" id="warmSlider" min="-100" max="100" step="1" value="0">
+    <div id="adjControls" hidden>
+      <div class="sliderRow adj"><label>露出</label><input type="range" id="adj_exposure" min="-100" max="100" step="1" value="0"></div>
+      <div class="sliderRow adj"><label>ブリリアンス</label><input type="range" id="adj_brilliance" min="-100" max="100" step="1" value="0"></div>
+      <div class="sliderRow adj"><label>ハイライト</label><input type="range" id="adj_highlights" min="-100" max="100" step="1" value="0"></div>
+      <div class="sliderRow adj"><label>シャドウ</label><input type="range" id="adj_shadows" min="-100" max="100" step="1" value="0"></div>
+      <div class="sliderRow adj"><label>明るさ</label><input type="range" id="adj_bright" min="-100" max="100" step="1" value="0"></div>
+      <div class="sliderRow adj"><label>ブラックポイント</label><input type="range" id="adj_black" min="-100" max="100" step="1" value="0"></div>
+      <div class="sliderRow adj"><label>自然な彩度</label><input type="range" id="adj_vibrance" min="-100" max="100" step="1" value="0"></div>
+      <div class="sliderRow adj"><label>暖かみ</label><input type="range" id="adj_warm" min="-100" max="100" step="1" value="0"></div>
+      <div class="sliderRow adj"><label>色合い</label><input type="range" id="adj_tint" min="-100" max="100" step="1" value="0"></div>
+      <div class="rowBtns"><button id="btnAdjReset">🔄 明るさ・色をリセット</button></div>
     </div>
     <div class="rowBtns" id="rowCutBg" hidden>
       <button id="btnCutBg">✂️ 背景を消す</button>
@@ -142,6 +149,7 @@
       </div>
     </div>
     <label class="checkRow" id="keepDecoRow"><input type="checkbox" id="keepDeco" checked> 🫛 キャラや飾りを写真の上に残す</label>
+    <label class="checkRow" id="maskRow" hidden><input type="checkbox" id="maskChk"> 🌊 枠の形どおりに切り抜く（曲線・でこぼこ枠用）</label>
     <div class="rowBtns">
       <button id="btnDetect">🔍 枠を自動検出しなおす</button>
     </div>
@@ -170,7 +178,9 @@ const S = {
   photo: null,   // {img, w, h}
   rect: null,    // {cx, cy, w, h, angle(rad), r(px)} フレーム画像ピクセル座標
   ph: { scale: 1, dx: 0, dy: 0 }, // 写真の拡大率(cover基準)と枠ローカル座標での平行移動
-  adj: { bright: 0, warm: 0 },    // 写真の明るさ・色温度（-100〜100）
+  adj: { exposure:0, brilliance:0, highlights:0, shadows:0, bright:0, black:0, vibrance:0, warm:0, tint:0 }, // 写真調整（-100〜100）
+  mask: null,    // 枠の形どおり切り抜き用マスク（フレームと同サイズのcanvas）
+  maskOn: false,
   texts: [],     // {str, fi, size, color, outline, outlineColor, curve, angle, x, y}
   selText: -1,
   mode: 'frame',
@@ -392,7 +402,33 @@ function detectPanel(img){
     w: (fit.mxU - fit.mnU) * inv * 0.99,  // 白フチに食い込まないよう少し内側に
     h: (fit.mxV - fit.mnV) * inv * 0.99,
     angle: fit.t,
+    maskInfo: { pts: best.pts, w, h },  // 領域の実際の形（曲線・でこぼこ切り抜き用）
   };
+}
+
+/* ============ 枠の形どおり切り抜きマスク ============ */
+/* 洪水法で見つけた領域そのもの＝パネルの実際の形（曲線・でこぼこ含む）。
+   これをフレームと同サイズに拡大したマスクにして、写真をこの形で切り抜けるようにする */
+let maskTmp = null; // マスク合成の作業用canvas（サイズが同じ間は使い回す）
+function buildMaskCanvas(det, FW, FH){
+  if (!det || !det.maskInfo) return null;
+  const { pts, w, h } = det.maskInfo;
+  const small = document.createElement('canvas'); small.width = w; small.height = h;
+  const sx = small.getContext('2d');
+  const id = sx.createImageData(w, h);
+  for (const i of pts) { const j = i*4; id.data[j] = id.data[j+1] = id.data[j+2] = id.data[j+3] = 255; }
+  sx.putImageData(id, 0, 0);
+  // 1px膨張＝枠との境目にすき間が出ないように少しだけ太らせる
+  const grow = document.createElement('canvas'); grow.width = w; grow.height = h;
+  const gx = grow.getContext('2d');
+  for (const [ox, oy] of [[0,0],[1,0],[-1,0],[0,1],[0,-1]]) gx.drawImage(small, ox, oy);
+  // フル解像度へ拡大（スムージングでフチがなめらかになる）
+  const full = document.createElement('canvas'); full.width = FW; full.height = FH;
+  const fx = full.getContext('2d');
+  fx.imageSmoothingEnabled = true;
+  fx.imageSmoothingQuality = 'high';
+  fx.drawImage(grow, 0, 0, FW, FH);
+  return full;
 }
 
 /* ============ 枠の記憶（localStorage） ============ */
@@ -408,6 +444,7 @@ function scheduleSaveRect(){
       localStorage.setItem(F.key, JSON.stringify({
         cx: R.cx/F.w, cy: R.cy/F.h, w: R.w/F.w, h: R.h/F.h,
         angle: R.angle, rPct: R.r / Math.max(1, Math.min(R.w, R.h)),
+        maskOn: S.maskOn,
       }));
     } catch(e){ /* プライベートモード等では記憶しないだけ */ }
   }, 400);
@@ -419,7 +456,7 @@ function loadSavedRect(){
     const v = JSON.parse(raw);
     const w = v.w * S.frame.w, h = v.h * S.frame.h;
     return { cx: v.cx*S.frame.w, cy: v.cy*S.frame.h, w, h,
-             angle: v.angle, r: v.rPct * Math.min(w, h) };
+             angle: v.angle, r: v.rPct * Math.min(w, h), maskOn: !!v.maskOn };
   } catch(e){ return null; }
 }
 
@@ -482,9 +519,15 @@ const FONTS = [
   { label: 'キウイ丸（やさしい）', fam: '"Kiwi Maru"', w: 500, gf: 'Kiwi+Maru:wght@500' },
   { label: 'はちまるポップ（ゆる手書き）', fam: '"Hachi Maru Pop"', w: 400, gf: 'Hachi+Maru+Pop' },
   { label: 'よもぎ（ほそ手書き）', fam: '"Yomogi"', w: 400, gf: 'Yomogi' },
-  { label: 'マジックペン', fam: '"Yusei Magic"', w: 400, gf: 'Yusei+Magic' },
-  { label: 'もちもちポップ（太め）', fam: '"Mochiy Pop One"', w: 400, gf: 'Mochiy+Pop+One' },
+  { label: 'クレナイド（シャーペン手書き）', fam: '"Zen Kurenaido"', w: 400, gf: 'Zen+Kurenaido' },
   { label: 'クレー（きれいな手書き）', fam: '"Klee One"', w: 600, gf: 'Klee+One:wght@600' },
+  { label: 'マジックペン', fam: '"Yusei Magic"', w: 400, gf: 'Yusei+Magic' },
+  { label: '筆文字（和風・上品）', fam: '"Yuji Syuku"', w: 400, gf: 'Yuji+Syuku' },
+  { label: 'もちもちポップ（太め）', fam: '"Mochiy Pop One"', w: 400, gf: 'Mochiy+Pop+One' },
+  { label: 'ロックンロール（元気ポップ）', fam: '"RocknRoll One"', w: 400, gf: 'RocknRoll+One' },
+  { label: 'おしゃれゴシック（すっきり）', fam: '"Zen Kaku Gothic New"', w: 500, gf: 'Zen+Kaku+Gothic+New:wght@500' },
+  { label: 'スティック（スタイリッシュ細字）', fam: '"Stick"', w: 400, gf: 'Stick' },
+  { label: 'デコール（レトロかわいい）', fam: '"Kaisei Decol"', w: 500, gf: 'Kaisei+Decol:wght@500' },
   { label: 'ごくぶと（インパクト）', fam: '"Dela Gothic One"', w: 400, gf: 'Dela+Gothic+One' },
   { label: '明朝（上品）', fam: '"Shippori Mincho"', w: 600, gf: 'Shippori+Mincho:wght@600' },
 ];
@@ -647,49 +690,116 @@ function roundRectPath(c, x, y, w, h, r){
   c.arcTo(x,   y,   x+w, y,   r);
   c.closePath();
 }
-/* 明るさ・暖かさを適用した写真（元のアルファ＝透明部分は保つ）。値が同じ間はキャッシュ */
-let adjCache = null;
-function adjustedPhoto(){
-  const { bright, warm } = S.adj;
-  if (!bright && !warm) return S.photo.img;
-  if (adjCache && adjCache.img === S.photo.img && adjCache.bright === bright && adjCache.warm === warm)
-    return adjCache.canvas;
-  const c = document.createElement('canvas');
-  c.width = S.photo.w; c.height = S.photo.h;
-  const x = c.getContext('2d');
-  x.drawImage(S.photo.img, 0, 0);
-  if (bright) {
-    const v = Math.round(Math.abs(bright) / 100 * 140);
-    x.globalCompositeOperation = bright > 0 ? 'screen' : 'multiply';
-    x.fillStyle = bright > 0 ? `rgb(${v},${v},${v})` : `rgb(${255-v},${255-v},${255-v})`;
-    x.fillRect(0, 0, c.width, c.height);
+/* ============ 写真の明るさ・色調整（iPhoneの写真編集と同じ項目） ============ */
+/* 各ピクセルを直接計算する方式。プレビューは縮小画像で軽く動かし、保存時だけフル解像度で適用。
+   透明部分（切り抜き済み写真）のアルファはそのまま保たれる */
+const ADJ_KEYS = ['exposure','brilliance','highlights','shadows','bright','black','vibrance','warm','tint'];
+const adjDefaults = () => ({ exposure:0, brilliance:0, highlights:0, shadows:0, bright:0, black:0, vibrance:0, warm:0, tint:0 });
+function adjIsNeutral(){ return ADJ_KEYS.every(k => !S.adj[k]); }
+let adjCache = null; // { img, key, preview, full }
+
+function applyAdjustTo(w, h){
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.drawImage(S.photo.img, 0, 0, w, h);
+  const id = x.getImageData(0, 0, w, h), d = id.data;
+  const A = S.adj;
+  const exp = Math.pow(2, A.exposure / 100);          // 露出＝光の量そのもの
+  const bri = A.bright / 100, bl = A.black / 100;
+  const hi = A.highlights / 100, sh = A.shadows / 100;
+  const brl = A.brilliance / 100, vib = A.vibrance / 100;
+  const wa = A.warm / 100, ti = A.tint / 100;
+  for (let i = 0; i < d.length; i += 4) {
+    if (!d[i+3]) continue; // 完全に透明な部分は触らない
+    let r = d[i] / 255, g = d[i+1] / 255, b = d[i+2] / 255;
+    if (exp !== 1) { r *= exp; g *= exp; b *= exp; }
+    if (bri) { const f = bri * 0.9; r += f*r*(1-r); g += f*g*(1-g); b += f*b*(1-b); } // 中間調中心に上げ下げ
+    if (r < 0) r = 0; else if (r > 1) r = 1;
+    if (g < 0) g = 0; else if (g > 1) g = 1;
+    if (b < 0) b = 0; else if (b > 1) b = 1;
+    const L = 0.299*r + 0.587*g + 0.114*b; // 以降は明るさ（輝度）に応じて効かせる
+    if (brl) { // ブリリアンス＝暗部を持ち上げつつ明部を少し落ち着かせる
+      const wS = L < 0.65 ? (0.65-L)/0.65 : 0, wH = L > 0.5 ? (L-0.5)/0.5 : 0;
+      const f1 = brl*0.45*wS*wS, f2 = brl*0.25*wH*wH;
+      r += f1*(1-r) - f2*(r-0.5); g += f1*(1-g) - f2*(g-0.5); b += f1*(1-b) - f2*(b-0.5);
+    }
+    if (hi) { // ハイライト＝明るい部分だけ
+      const w1 = L > 0.4 ? (L-0.4)/0.6 : 0, f = hi*0.7*w1*w1;
+      if (hi > 0) { r += f*(1-r); g += f*(1-g); b += f*(1-b); }
+      else { r += f*r; g += f*g; b += f*b; }
+    }
+    if (sh) { // シャドウ＝暗い部分だけ
+      const w2 = L < 0.6 ? (0.6-L)/0.6 : 0, f = sh*0.7*w2*w2;
+      if (sh > 0) { r += f*(1-r); g += f*(1-g); b += f*(1-b); }
+      else { r += f*r; g += f*g; b += f*b; }
+    }
+    if (bl) { // ブラックポイント＝黒の締まり（＋で黒く沈む、−で霞む）
+      if (bl > 0) { const a = bl*0.35; r = (r-a)/(1-a); g = (g-a)/(1-a); b = (b-a)/(1-a); }
+      else { const a = -bl*0.35; r = r*(1-a)+a; g = g*(1-a)+a; b = b*(1-a)+a; }
+    }
+    if (wa) { r += wa*0.15; b -= wa*0.15; g += wa*0.03; }        // 暖かみ＝オレンジ⇄ブルー
+    if (ti) { g -= ti*0.12; r += ti*0.06; b += ti*0.06; }        // 色合い＝マゼンタ⇄グリーン
+    if (vib) { // 自然な彩度＝もともと地味な色ほど強く効く
+      const mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+      const mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+      const sat = mx - mn;
+      const L2 = 0.299*r + 0.587*g + 0.114*b;
+      const f = 1 + vib * (vib > 0 ? (1 - Math.min(1, sat)) * 0.9 : 0.9);
+      r = L2 + (r-L2)*f; g = L2 + (g-L2)*f; b = L2 + (b-L2)*f;
+    }
+    d[i] = r*255; d[i+1] = g*255; d[i+2] = b*255; // Uint8ClampedArrayが自動で0〜255に丸める
   }
-  if (warm) {
-    x.globalCompositeOperation = 'soft-light';
-    x.globalAlpha = Math.min(1, Math.abs(warm) / 100 * 0.9);
-    x.fillStyle = warm > 0 ? 'rgb(255,138,48)' : 'rgb(64,140,255)';
-    x.fillRect(0, 0, c.width, c.height);
-    x.globalAlpha = 1;
-  }
-  // 元のアルファを復元（切り抜き済み写真の透明部分に色が乗らないように）
-  x.globalCompositeOperation = 'destination-in';
-  x.drawImage(S.photo.img, 0, 0);
-  x.globalCompositeOperation = 'source-over';
-  adjCache = { img: S.photo.img, bright, warm, canvas: c };
+  x.putImageData(id, 0, 0);
   return c;
 }
-function drawPhotoInto(c, k){
+function adjustedPhoto(full){
+  if (adjIsNeutral()) return S.photo.img;
+  const key = ADJ_KEYS.map(k => S.adj[k]).join(',');
+  if (!adjCache || adjCache.img !== S.photo.img || adjCache.key !== key)
+    adjCache = { img: S.photo.img, key, preview: null, full: null };
+  if (full) {
+    if (!adjCache.full) adjCache.full = applyAdjustTo(S.photo.w, S.photo.h);
+    return adjCache.full;
+  }
+  if (!adjCache.preview) {
+    const sc = Math.min(1, 1000 / Math.max(S.photo.w, S.photo.h));
+    adjCache.preview = applyAdjustTo(Math.max(1, Math.round(S.photo.w*sc)), Math.max(1, Math.round(S.photo.h*sc)));
+  }
+  return adjCache.preview;
+}
+function drawPhotoInto(c, k, full){
   const { cx, cy, w, h, angle, r } = S.rect;
-  c.save();
-  c.translate(cx*k, cy*k); c.rotate(angle);
-  roundRectPath(c, -w/2*k, -h/2*k, w*k, h*k, r*k);
-  c.clip();
+  const img = adjustedPhoto(full);
   const cover = Math.max(w / S.photo.w, h / S.photo.h);
   const s = cover * S.ph.scale * k;
-  c.drawImage(adjustedPhoto(),
-    S.ph.dx*k - S.photo.w*s/2, S.ph.dy*k - S.photo.h*s/2,
-    S.photo.w*s, S.photo.h*s);
-  c.restore();
+  if (S.maskOn && S.mask) {
+    // 枠の形どおり切り抜き：写真を作業用canvasに描いてからマスクの形でくり抜く
+    const W = Math.round(S.frame.w*k), H = Math.round(S.frame.h*k);
+    if (!maskTmp || maskTmp.width !== W || maskTmp.height !== H) {
+      maskTmp = document.createElement('canvas'); maskTmp.width = W; maskTmp.height = H;
+    }
+    const t = maskTmp.getContext('2d');
+    t.setTransform(1, 0, 0, 1, 0, 0);
+    t.clearRect(0, 0, W, H);
+    t.translate(cx*k, cy*k); t.rotate(angle);
+    t.drawImage(img,
+      S.ph.dx*k - S.photo.w*s/2, S.ph.dy*k - S.photo.h*s/2,
+      S.photo.w*s, S.photo.h*s);
+    t.setTransform(1, 0, 0, 1, 0, 0);
+    t.globalCompositeOperation = 'destination-in';
+    t.drawImage(S.mask, 0, 0, W, H);
+    t.globalCompositeOperation = 'source-over';
+    c.drawImage(maskTmp, 0, 0, S.frame.w*k, S.frame.h*k);
+  } else {
+    c.save();
+    c.translate(cx*k, cy*k); c.rotate(angle);
+    roundRectPath(c, -w/2*k, -h/2*k, w*k, h*k, r*k);
+    c.clip();
+    c.drawImage(img,
+      S.ph.dx*k - S.photo.w*s/2, S.ph.dy*k - S.photo.h*s/2,
+      S.photo.w*s, S.photo.h*s);
+    c.restore();
+  }
   // 前面レイヤー（キャラ・マステ等）を写真の上に描き戻す
   if (overlayCanvas && $('keepDeco').checked)
     c.drawImage(overlayCanvas, 0, 0, S.frame.w*k, S.frame.h*k);
@@ -767,13 +877,20 @@ window.addEventListener('resize', fitCanvas);
 /* ============ フレーム/写真セット ============ */
 function setFrame(img, name){
   S.frame = { img, w: img.naturalWidth, h: img.naturalHeight, key: frameKey(img), name: name || 'frame' };
+  S.mask = null; S.maskOn = false; maskTmp = null;
   const saved = loadSavedRect();
   if (saved) {
-    S.rect = saved;
+    S.rect = { cx: saved.cx, cy: saved.cy, w: saved.w, h: saved.h, angle: saved.angle, r: saved.r };
+    if (saved.maskOn) { // 前回「枠の形どおり」だったフレームはマスクを作り直す
+      S.mask = buildMaskCanvas(detectPanel(img), S.frame.w, S.frame.h);
+      S.maskOn = !!S.mask;
+    }
   } else {
     const det = detectPanel(img);
-    S.rect = { ...det, r: Math.min(det.w, det.h) * 0.05 };
+    S.rect = { cx: det.cx, cy: det.cy, w: det.w, h: det.h, angle: det.angle, r: Math.min(det.w, det.h) * 0.05 };
+    S.mask = buildMaskCanvas(det, S.frame.w, S.frame.h);
   }
+  $('maskChk').checked = S.maskOn;
   S.ph = { scale: 1, dx: 0, dy: 0 };
   buildOverlay();
   syncSliders();
@@ -790,11 +907,11 @@ function setFrame(img, name){
 function setPhoto(img){
   S.photo = { img, w: img.naturalWidth, h: img.naturalHeight };
   S.ph = { scale: 1, dx: 0, dy: 0 };
-  S.adj = { bright: 0, warm: 0 };
+  S.adj = adjDefaults();
+  adjCache = null;
+  syncAdjSliders();
   S.photoOrig = null;
   $('btnRestoreBg').hidden = true;
-  $('brightSlider').value = 0;
-  $('warmSlider').value = 0;
   $('modePhoto').disabled = false;
   $('btnPhoto').classList.add('done');
   // フレームなし＝写真だけモードでも表示・加工できる
@@ -830,19 +947,21 @@ function setMode(m){
   $('modeFrame').classList.toggle('on', m === 'frame');
   $('modePhoto').classList.toggle('on', m === 'photo');
   $('modeText').classList.toggle('on', m === 'text');
-  $('rowAngle').hidden = $('rowRadius').hidden = (m !== 'frame');
-  $('rowBright').hidden = $('rowWarm').hidden = $('rowCutBg').hidden = (m !== 'photo');
+  $('rowAngle').hidden = (m !== 'frame');
+  $('rowRadius').hidden = (m !== 'frame') || S.maskOn;
+  $('adjControls').hidden = $('rowCutBg').hidden = (m !== 'photo');
   $('rowZoom').hidden = (m !== 'photo' || !S.frame); // 拡大はフレームに写真をはめる時だけ意味がある
   $('textControls').hidden = (m !== 'text');
   $('keepDecoRow').hidden = (m === 'text');
+  $('maskRow').hidden = (m !== 'frame');
   $('btnDetect').parentElement.hidden = (m !== 'frame');
   if (m === 'text') { ensureFontCSS(); syncTextControls(); }
   $('hintText').textContent = m === 'frame'
-    ? '💡 むらさきの丸をドラッグすると枠の大きさ、枠の中をドラッグすると位置を動かせます。合わせた枠は自動で記憶されるので、同じフレームなら次回から調整いらずです。'
+    ? '💡 むらさきの丸をドラッグすると枠の大きさ、枠の中をドラッグすると位置を動かせます。合わせた枠は自動で記憶されます。枠が曲線やでこぼこのフレームは「🌊 枠の形どおりに切り抜く」をオンに。'
     : m === 'photo'
     ? (S.frame
-      ? '💡 写真をドラッグして位置を、2本指ピンチ（またはスライダー）で大きさを調整。「明るさ」「暖かさ」で写真の雰囲気も変えられます。別の写真にしたいときは「② 写真」をもう一度。'
-      : '💡 明るさ・暖かさ・背景除去だけ使って「③ 保存」すると、加工した写真として保存できます（背景除去なら透過PNG）。フレームに入れたくなったら「① フレーム」をどうぞ。')
+      ? '💡 写真をドラッグして位置を、2本指ピンチ（またはスライダー）で大きさを調整。露出・シャドウ・彩度などのスライダーで写真の雰囲気も整えられます。別の写真にしたいときは「② 写真」をもう一度。'
+      : '💡 明るさ調整・背景除去だけ使って「③ 保存」すると、加工した写真として保存できます（背景除去なら透過PNG）。フレームに入れたくなったら「① フレーム」をどうぞ。')
     : '💡 「➕ 文字を追加」→下の欄に入力。文字はドラッグで移動、2本指ピンチで大きさ、「カーブ」のスライダーで虹みたいに曲げられます🌈';
   draw();
 }
@@ -872,15 +991,39 @@ $('zoomSlider').oninput = e => {
   S.ph.scale = parseFloat(e.target.value);
   clampPan(); draw();
 };
-$('brightSlider').oninput = e => { S.adj.bright = parseFloat(e.target.value); draw(); };
-$('warmSlider').oninput = e => { S.adj.warm = parseFloat(e.target.value); draw(); };
+/* 写真調整スライダー（描画はrequestAnimationFrameで間引いてなめらかに） */
+let drawQueued = false;
+function requestDraw(){
+  if (drawQueued) return;
+  drawQueued = true;
+  requestAnimationFrame(() => { drawQueued = false; draw(); });
+}
+function syncAdjSliders(){ for (const k of ADJ_KEYS) $('adj_' + k).value = S.adj[k]; }
+for (const k of ADJ_KEYS)
+  $('adj_' + k).oninput = e => { S.adj[k] = parseFloat(e.target.value); requestDraw(); };
+$('btnAdjReset').onclick = () => { S.adj = adjDefaults(); syncAdjSliders(); draw(); };
 $('btnDetect').onclick = () => {
   if (!S.frame) return;
   const det = detectPanel(S.frame.img);
-  S.rect = { ...det, r: Math.min(det.w, det.h) * 0.05 };
+  S.rect = { cx: det.cx, cy: det.cy, w: det.w, h: det.h, angle: det.angle, r: Math.min(det.w, det.h) * 0.05 };
+  S.mask = buildMaskCanvas(det, S.frame.w, S.frame.h);
+  if (S.maskOn && !S.mask) { S.maskOn = false; $('maskChk').checked = false; }
   S.ph = { scale: 1, dx: 0, dy: 0 };
   buildOverlay();
   syncSliders(); clampPan(); draw(); scheduleSaveRect();
+};
+$('maskChk').onchange = e => {
+  if (e.target.checked && !S.mask) { // 記憶済みフレーム等でマスク未作成なら、その場で検出
+    S.mask = buildMaskCanvas(detectPanel(S.frame.img), S.frame.w, S.frame.h);
+    if (!S.mask) {
+      alert('この枠は形をうまく検出できませんでした🙏\nいつもの四角い枠のままお使いください。');
+      e.target.checked = false;
+      return;
+    }
+  }
+  S.maskOn = e.target.checked;
+  $('rowRadius').hidden = (S.mode !== 'frame') || S.maskOn; // 形どおりの時は角丸は意味がないので隠す
+  draw(); scheduleSaveRect();
 };
 $('keepDeco').onchange = () => draw();
 
@@ -1068,12 +1211,12 @@ function renderExport(){
   if (!S.frame) {
     // 写真だけモード：加工した写真をそのまま（透明部分は透過PNGとして）書き出す
     c.width = S.photo.w; c.height = S.photo.h;
-    x.drawImage(adjustedPhoto(), 0, 0);
+    x.drawImage(adjustedPhoto(true), 0, 0);
     return c;
   }
   c.width = S.frame.w; c.height = S.frame.h;
   x.drawImage(S.frame.img, 0, 0);
-  if (S.photo && S.rect) drawPhotoInto(x, 1);
+  if (S.photo && S.rect) drawPhotoInto(x, 1, true); // 保存時はフル解像度で調整を適用
   drawTexts(x, 1);
   return c;
 }
@@ -1116,6 +1259,8 @@ window.__test = {
   rect: () => S.rect,
   texts: () => S.texts,
   addText,
+  setAdj(o){ Object.assign(S.adj, o); syncAdjSliders(); draw(); },
+  setMaskOn(v){ if (v && !S.mask) S.mask = buildMaskCanvas(detectPanel(S.frame.img), S.frame.w, S.frame.h); S.maskOn = v && !!S.mask; $('maskChk').checked = S.maskOn; draw(); return S.maskOn; },
   exportDataURL: () => renderExport().toDataURL('image/png'),
 };
 </script>
