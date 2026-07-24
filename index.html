@@ -8,85 +8,140 @@
 <title>フレーム写真ツール</title>
 <style>
   :root{
-    --lav:#b89ac9; --lav-dark:#8e6aa8; --cream:#fdf6ec; --panel:#f3e9f5;
-    --ink:#5a4a63; --accent:#e8b4c8;
+    --ink:#1c2333; --ink-soft:#4a5266; --paper:#f7f5f0; --card:#ffffff;
+    --sea:#16324f; --sea-deep:#0d2136; --moss:#3d6b5e;
+    --gold:#b98a2f; --gold-soft:#f0e2c4; --line:#e7e1d4;
+    --radius:14px;
+    --mincho:"Hiragino Mincho ProN","Yu Mincho","游明朝",serif;
+    --gothic:"Hiragino Kaku Gothic ProN","Hiragino Sans",system-ui,sans-serif;
   }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   [hidden]{ display:none !important; }
-  html,body{ margin:0; padding:0; background:var(--cream); color:var(--ink);
-    font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif;
-    overscroll-behavior:none; }
-  header{ text-align:center; padding:14px 10px 6px; font-size:19px; font-weight:700;
-    color:var(--lav-dark); letter-spacing:.06em; }
-  header small{ display:block; font-size:11px; font-weight:400; color:#a08db0; margin-top:2px; }
-  main{ max-width:560px; margin:0 auto; padding:0 12px 30px; }
+  html{ color-scheme:light; font-size:16px; }
+  html,body{ margin:0; padding:0; color:var(--ink); font-family:var(--gothic);
+    background:var(--paper); overscroll-behavior:none; -webkit-font-smoothing:antialiased; }
 
-  .steps{ display:flex; gap:8px; margin:8px 0 10px; }
-  .btn{ flex:1; display:flex; align-items:center; justify-content:center; text-align:center;
-    background:#fff; border:2px solid var(--lav); color:var(--lav-dark); border-radius:14px;
-    padding:12px 4px; font-size:14px; font-weight:700; cursor:pointer; user-select:none;
-    box-shadow:0 2px 6px rgba(140,110,170,.12); }
-  .btn:active{ transform:scale(.97); }
-  .btn.primary{ background:var(--lav); color:#fff; border-color:var(--lav); }
-  .btn.done{ border-color:#9cc79c; color:#5f8f5f; }
-  .btn[disabled]{ opacity:.4; pointer-events:none; }
+  /* ヘッダー：もずくサイト踏襲の紺グラデバー */
+  .site-header{ background:linear-gradient(160deg,var(--sea-deep),var(--sea) 70%,var(--moss));
+    color:#f2efe6; padding:1rem 1.2rem; display:flex; align-items:center; justify-content:center; }
+  .site-header .brand{ display:inline-flex; align-items:center; gap:.65rem; }
+  .brand-mark{ display:grid; place-items:center; width:2.5rem; height:2.5rem;
+    border:1px solid rgba(242,239,230,.5); border-radius:50%; font-size:1.15rem; flex-shrink:0; }
+  .brand-text{ display:flex; flex-direction:column; line-height:1.3; }
+  .brand-title{ font-family:var(--mincho); font-size:1.15rem; letter-spacing:.09em; }
+  .brand-sub{ font-size:.66rem; opacity:.78; letter-spacing:.15em; }
+  .lead{ display:block; text-align:center; font-size:11.5px; color:var(--ink-soft);
+    margin:.85rem auto 0; max-width:340px; padding:0 1rem; line-height:1.65; }
+  main{ max-width:560px; margin:0 auto; padding:.9rem 1.1rem 3rem; }
 
-  #canvasWrap{ position:relative; border-radius:16px; overflow:hidden;
-    background:repeating-conic-gradient(#ece2f0 0 25%, #f8f2fa 0 50%) 0 0/24px 24px;
-    box-shadow:0 4px 14px rgba(140,110,170,.18); min-height:200px; }
-  #canvasWrap.drag{ outline:3px dashed var(--lav); outline-offset:-6px; }
+  .steps{ display:flex; gap:.55rem; margin:.4rem 0 1rem; }
+  .btn{ flex:1; display:flex; align-items:center; justify-content:center; gap:.3rem; text-align:center;
+    background:var(--card); border:1px solid var(--line); color:var(--ink); border-radius:var(--radius);
+    padding:.95rem .3rem; font-size:.9rem; font-weight:600; cursor:pointer; user-select:none;
+    box-shadow:0 1px 6px rgba(22,50,79,.06); touch-action:manipulation;
+    transition:border-color .2s, background .2s, transform .45s cubic-bezier(.2,.85,.3,1.08); }
+  .btn:hover{ border-color:var(--gold); }
+  .btn:active{ transform:scale(.94); transition-duration:.09s; }
+  .btn.primary{ background:var(--sea); color:#f2efe6; border-color:var(--sea); }
+  .btn.primary:hover{ background:var(--sea-deep); border-color:var(--sea-deep); }
+  .btn.done{ border-color:var(--moss); color:var(--moss); background:#f3f7f4; }
+  .btn[disabled]{ opacity:.4; pointer-events:none; box-shadow:none; }
+
+  #canvasWrap{ position:relative; border-radius:var(--radius); overflow:hidden;
+    background:repeating-conic-gradient(#ece9e0 0 25%, #f5f2ea 0 50%) 0 0/20px 20px;
+    box-shadow:0 1px 8px rgba(22,50,79,.07); border:1px solid var(--line); min-height:200px; }
+  #canvasWrap.drag{ outline:2px dashed var(--gold); outline-offset:-6px; }
   #cv{ display:block; width:100%; height:auto; touch-action:none; }
-  #placeholder{ position:absolute; inset:0; display:flex; flex-direction:column; gap:6px;
-    align-items:center; justify-content:center; text-align:center; font-size:14px;
-    color:#a08db0; padding:30px; pointer-events:none; }
-  #placeholder .big{ font-size:34px; }
+  #placeholder{ position:absolute; inset:0; display:flex; flex-direction:column; gap:.5rem;
+    align-items:center; justify-content:center; text-align:center; font-size:13px;
+    color:var(--ink-soft); padding:2rem; pointer-events:none; line-height:1.85; }
+  #placeholder .big{ font-size:40px; opacity:.85; margin-bottom:.2rem; }
 
-  #controls{ margin-top:12px; background:#fff; border-radius:16px; padding:12px 14px;
-    box-shadow:0 2px 10px rgba(140,110,170,.12); }
-  .seg{ display:flex; background:var(--panel); border-radius:12px; padding:4px; gap:4px; margin-bottom:10px; }
-  .seg button{ flex:1; border:0; background:transparent; border-radius:9px; padding:10px 4px;
-    font-size:14px; font-weight:700; color:#a08db0; cursor:pointer; font-family:inherit; }
-  .seg button.on{ background:#fff; color:var(--lav-dark); box-shadow:0 1px 4px rgba(140,110,170,.25); }
+  #controls{ margin-top:.9rem; background:var(--card); border-radius:var(--radius);
+    padding:1.1rem 1.1rem 1.2rem; box-shadow:0 1px 8px rgba(22,50,79,.07); border:1px solid var(--line); }
+
+  .seg{ display:flex; background:var(--paper); border:1px solid var(--line); border-radius:10px;
+    padding:4px; gap:4px; margin-bottom:1rem; }
+  .seg button{ flex:1; border:0; background:transparent; border-radius:7px; padding:.7rem .3rem;
+    font-size:.9rem; font-weight:600; color:var(--ink-soft); cursor:pointer; font-family:inherit; touch-action:manipulation;
+    transition:color .2s, background .2s, transform .45s cubic-bezier(.2,.85,.3,1.08); }
+  .seg button.on{ background:var(--sea); color:#f2efe6; }
+  .seg button:active{ transform:scale(.93); transition-duration:.09s; }
   .seg button[disabled]{ opacity:.4; }
-  .sliderRow{ display:flex; align-items:center; gap:10px; font-size:13px; margin:8px 0; }
-  .sliderRow label{ width:3.5em; flex-shrink:0; font-weight:700; }
-  .sliderRow input[type=range]{ flex:1; accent-color:var(--lav); height:28px; }
-  .sliderRow.adj label{ width:96px; font-size:12px; }
-  .checkRow{ display:flex; align-items:center; gap:8px; font-size:13px; font-weight:700;
-    margin:10px 2px 2px; cursor:pointer; }
-  .checkRow input{ width:18px; height:18px; accent-color:var(--lav); }
-  #textInput{ width:100%; border:1.5px solid var(--panel); border-radius:10px; padding:9px 10px;
-    font-size:15px; font-family:inherit; color:var(--ink); resize:none; margin:2px 0 6px; background:#fdfbff; }
-  #fontSelect{ width:100%; border:1.5px solid var(--panel); border-radius:10px; padding:9px 10px;
-    font-size:14px; font-family:inherit; color:var(--ink); background:#fdfbff; margin:0 0 4px; }
-  .swRow{ display:flex; align-items:center; gap:7px; margin:8px 0; flex-wrap:wrap; font-size:13px; }
-  .swRow b{ width:3.5em; flex-shrink:0; }
-  #swatches{ display:flex; gap:7px; flex-wrap:wrap; }
-  .sw{ width:27px; height:27px; border-radius:50%; border:2px solid #fff;
-    box-shadow:0 0 0 1.5px #d8c8e2; cursor:pointer; padding:0; }
-  .sw.on{ box-shadow:0 0 0 2.5px var(--lav-dark); }
-  .colorPick{ width:34px; height:30px; border:1.5px solid var(--panel); border-radius:8px; padding:1px; background:#fff; }
-  .rowBtns{ display:flex; gap:8px; margin-top:10px; }
-  .rowBtns button{ flex:1; border:1.5px solid var(--lav); background:#fff; color:var(--lav-dark);
-    border-radius:10px; padding:9px 4px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit; }
-  .hint{ font-size:12px; color:#a08db0; margin:10px 2px 0; line-height:1.7; }
 
-  #modal{ position:fixed; inset:0; background:rgba(90,74,99,.45); display:none;
-    align-items:center; justify-content:center; padding:16px; z-index:10; }
-  #modal.show{ display:flex; }
-  #modalCard{ background:#fff; border-radius:18px; padding:16px; max-width:420px; width:100%;
-    max-height:92vh; overflow:auto; text-align:center; }
-  #modalCard h3{ margin:2px 0 10px; color:var(--lav-dark); font-size:16px; }
-  #resultImg{ width:100%; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,.15); }
-  #modalCard .rowBtns{ margin-top:12px; }
-  #modalCard .rowBtns .main{ background:var(--lav); color:#fff; }
-  #modalCard .note{ font-size:11px; color:#a08db0; margin-top:8px; }
+  .sliderRow{ display:flex; align-items:center; gap:.75rem; font-size:.82rem; margin:.7rem 0; }
+  .sliderRow label{ width:4em; flex-shrink:0; font-weight:600; color:var(--ink); }
+  .sliderRow input[type=range]{ flex:1; -webkit-appearance:none; appearance:none; height:4px; border-radius:4px;
+    background:#e5e0d3; outline:none; }
+  .sliderRow input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; appearance:none;
+    width:18px; height:18px; border-radius:50%; background:var(--sea);
+    box-shadow:0 1px 4px rgba(22,50,79,.35); border:2px solid #fff; cursor:pointer; }
+  .sliderRow input[type=range]::-moz-range-thumb{ width:16px; height:16px; border-radius:50%;
+    background:var(--sea); border:2px solid #fff; box-shadow:0 1px 4px rgba(22,50,79,.35); cursor:pointer; }
+  .sliderRow.adj label{ width:96px; font-size:.75rem; }
+
+  .checkRow{ display:flex; align-items:center; gap:.55rem; font-size:.82rem; font-weight:600;
+    margin:.8rem .1rem .1rem; cursor:pointer; color:var(--ink); }
+  .checkRow input{ width:18px; height:18px; accent-color:var(--sea); }
+
+  #textInput{ width:100%; border:1px solid var(--line); border-radius:8px; padding:.65rem .7rem;
+    font-size:1rem; font-family:inherit; color:var(--ink); resize:none; margin:.1rem 0 .5rem;
+    background:#fff; transition:border-color .2s; }
+  #textInput:focus{ outline:none; border-color:var(--gold); }
+  #fontSelect{ width:100%; border:1px solid var(--line); border-radius:8px; padding:.65rem .7rem;
+    font-size:.9rem; font-family:inherit; color:var(--ink); background:#fff; margin:0 0 .4rem; }
+  .swRow{ display:flex; align-items:center; gap:.5rem; margin:.65rem 0; flex-wrap:wrap; font-size:.82rem; font-weight:600; }
+  .swRow b{ width:3.5em; flex-shrink:0; }
+  #swatches{ display:flex; gap:.5rem; flex-wrap:wrap; }
+  .sw{ width:27px; height:27px; border-radius:50%; border:2px solid #fff;
+    box-shadow:0 0 0 1px var(--line); cursor:pointer; padding:0; touch-action:manipulation;
+    transition:box-shadow .15s, transform .45s cubic-bezier(.2,.85,.3,1.08); }
+  .sw.on{ box-shadow:0 0 0 2px var(--gold); }
+  .sw:active{ transform:scale(.85); transition-duration:.09s; }
+  .colorPick{ width:34px; height:30px; border:1px solid var(--line); border-radius:7px; padding:1px; background:#fff; }
+  .rowBtns{ display:flex; gap:.55rem; margin-top:.8rem; }
+  .rowBtns button{ flex:1; border:1px solid var(--line); background:var(--card); color:var(--sea);
+    border-radius:9px; padding:.7rem .3rem; font-size:.8rem; font-weight:600; cursor:pointer; font-family:inherit; touch-action:manipulation;
+    transition:border-color .2s, background .2s, transform .45s cubic-bezier(.2,.85,.3,1.08); }
+  .rowBtns button:hover{ border-color:var(--gold); background:#fcfaf5; }
+  .rowBtns button:active{ transform:scale(.95); transition-duration:.09s; }
+  .rowBtns button[disabled]{ opacity:.4; pointer-events:none; }
+  .hint{ font-size:.75rem; color:var(--ink-soft); margin:.9rem .1rem 0; line-height:1.85;
+    padding:.7rem .85rem; background:var(--paper); border-left:3px solid var(--gold); border-radius:0 6px 6px 0; }
+
+  #historyBar{ margin:0 0 1rem; }
+  #historyBar button{ font-size:.8rem; }
+  #btnReset{ border-color:#dcc0b4; color:#a5563f; }
+  #btnReset:hover{ border-color:#a5563f; background:#fbf4f1; }
+
+  #modal{ position:fixed; inset:0; background:rgba(13,33,54,.5);
+    backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px); display:none;
+    align-items:center; justify-content:center; padding:18px; z-index:10; }
+  #modal.show{ display:flex; animation:fade .2s ease both; }
+  #modalCard{ background:var(--card); border-radius:var(--radius); padding:1.3rem; max-width:420px; width:100%;
+    max-height:92vh; overflow:auto; text-align:center; border:1px solid var(--line);
+    box-shadow:0 16px 48px rgba(13,33,54,.3); }
+  #modal.show #modalCard{ animation:materialize .4s cubic-bezier(.2,.85,.3,1.05) both; }
+  #modalCard h3{ margin:.1rem 0 1rem; font-size:1.3rem; font-weight:600; font-family:var(--mincho); color:var(--sea); }
+  #resultImg{ width:100%; border-radius:10px; box-shadow:0 2px 12px rgba(22,50,79,.15); }
+  #modalCard .rowBtns{ margin-top:1rem; }
+  #modalCard .rowBtns .main{ background:var(--sea); color:#f2efe6; border-color:var(--sea); }
+  #modalCard .rowBtns .main:hover{ background:var(--sea-deep); }
+  #modalCard .note{ font-size:.68rem; color:var(--ink-soft); margin-top:.7rem; line-height:1.7; }
+
+  @keyframes fade{ from{ opacity:0; } to{ opacity:1; } }
+  @keyframes materialize{ from{ opacity:0; transform:scale(.92); } to{ opacity:1; transform:scale(1); } }
+  @media (prefers-reduced-motion:reduce){ *{ animation:none !important; transition:none !important; } }
 </style>
 </head>
 <body>
-<header>🌿 フレーム写真ツール
-  <small>フレームの枠に写真をはめて、インスタ用画像を作ります（画像はどこにも送信されません）</small>
+<header class="site-header">
+  <div class="brand">
+    <span class="brand-mark">🖼</span>
+    <span class="brand-text"><span class="brand-title">フレーム写真ツール</span><span class="brand-sub">FRAME PHOTO TOOL</span></span>
+  </div>
 </header>
+<p class="lead">フレームの枠に写真をはめて、インスタ用画像を作ります（画像はどこにも送信されません）</p>
 <main>
   <div class="steps">
     <label class="btn" id="btnFrame">① フレーム<input type="file" id="frameInput" accept="image/*,.heic,.heif" hidden></label>
@@ -105,6 +160,11 @@
   </div>
 
   <div id="controls" hidden>
+    <div class="rowBtns" id="historyBar">
+      <button id="btnUndo" disabled>↩️ 戻る</button>
+      <button id="btnRedo" disabled>↪️ やり直し</button>
+      <button id="btnReset">🗑 最初から</button>
+    </div>
     <div class="seg">
       <button id="modeFrame" class="on">🔧 枠</button>
       <button id="modePhoto" disabled>🤏 写真</button>
@@ -142,7 +202,7 @@
       <div class="sliderRow"><label>カーブ</label><input type="range" id="textCurveSlider" min="-100" max="100" step="1" value="0"></div>
       <div class="sliderRow"><label>傾き</label><input type="range" id="textAngleSlider" min="-45" max="45" step="0.5" value="0"></div>
       <div class="swRow"><b>文字色</b><span id="swatches"></span><input type="color" id="textColorPick" class="colorPick" value="#ffffff"></div>
-      <div class="swRow"><b>フチ</b><input type="checkbox" id="textOutlineChk" checked style="width:18px;height:18px;accent-color:var(--lav);"><input type="color" id="outlineColorPick" class="colorPick" value="#8e6aa8"></div>
+      <div class="swRow"><b>フチ</b><input type="checkbox" id="textOutlineChk" checked style="width:18px;height:18px;accent-color:var(--accent);"><input type="color" id="outlineColorPick" class="colorPick" value="#8e6aa8"></div>
       <div class="rowBtns">
         <button id="btnAddText">➕ 文字を追加</button>
         <button id="btnDelText" disabled>🗑 この文字を削除</button>
@@ -186,6 +246,69 @@ const S = {
   mode: 'frame',
 };
 let lastBlob = null, lastBlobURL = null;
+
+/* ============ 履歴（戻る / やり直し） ============ */
+let undoStack = [], redoStack = [], curSnap = null;
+function snapshot(){
+  return JSON.stringify({
+    rect: S.rect, ph: S.ph, adj: S.adj,
+    texts: S.texts.map(t => ({ str:t.str, fi:t.fi, size:t.size, color:t.color,
+      outline:t.outline, outlineColor:t.outlineColor, curve:t.curve, angle:t.angle, x:t.x, y:t.y })),
+    selText: S.selText, maskOn: S.maskOn,
+  });
+}
+function commit(){
+  const s = snapshot();
+  if (curSnap === null) { curSnap = s; updateUndoButtons(); return; }
+  if (s === curSnap) return;
+  undoStack.push(curSnap);
+  if (undoStack.length > 60) undoStack.shift();
+  redoStack = [];
+  curSnap = s;
+  updateUndoButtons();
+}
+function resetHistory(){ undoStack = []; redoStack = []; curSnap = snapshot(); updateUndoButtons(); }
+function restoreSnap(str){
+  const v = JSON.parse(str);
+  S.rect = v.rect; S.ph = v.ph || { scale:1, dx:0, dy:0 }; S.adj = v.adj || adjDefaults();
+  S.texts = v.texts || []; S.selText = (v.selText == null ? -1 : v.selText); S.maskOn = !!v.maskOn;
+  adjCache = null;
+  if (S.maskOn && !S.mask && S.frame) S.mask = buildMaskCanvas(detectPanel(S.frame.img), S.frame.w, S.frame.h);
+  $('maskChk').checked = S.maskOn;
+  syncSliders(); syncAdjSliders(); syncTextControls();
+  $('rowRadius').hidden = (S.mode !== 'frame') || S.maskOn;
+  if (S.frame && S.rect) buildOverlay();
+  clampPan(); draw();
+  if (S.frame && S.rect) scheduleSaveRect();
+  updateUndoButtons();
+}
+function undo(){ if (!undoStack.length) return; redoStack.push(curSnap); curSnap = undoStack.pop(); restoreSnap(curSnap); }
+function redo(){ if (!redoStack.length) return; undoStack.push(curSnap); curSnap = redoStack.pop(); restoreSnap(curSnap); }
+function updateUndoButtons(){
+  const u = $('btnUndo'), r = $('btnRedo');
+  if (u) u.disabled = !undoStack.length;
+  if (r) r.disabled = !redoStack.length;
+}
+function resetAll(){
+  if (!(S.frame || S.photo)) return;
+  if (!confirm('写真・文字・明るさ調整・枠をぜんぶ消して、最初からやり直しますか？')) return;
+  S.frame = null; S.photo = null; S.rect = null; S.mask = null; S.maskOn = false;
+  S.ph = { scale:1, dx:0, dy:0 }; S.adj = adjDefaults(); adjCache = null;
+  S.texts = []; S.selText = -1; S.photoOrig = null; S.mode = 'frame';
+  overlayCanvas = null; maskTmp = null;
+  $('controls').hidden = true;
+  $('placeholder').style.display = '';
+  $('btnFrame').classList.remove('done');
+  $('btnPhoto').classList.remove('done');
+  $('btnRestoreBg').hidden = true;
+  $('modePhoto').disabled = true;
+  $('modeText').disabled = true;
+  setMode('frame');
+  updateButtons();
+  cv.width = 10; cv.height = 10; ctx.clearRect(0, 0, cv.width, cv.height);
+  undoStack = []; redoStack = []; curSnap = null;
+  updateUndoButtons();
+}
 
 const $ = id => document.getElementById(id);
 const cv = $('cv'), ctx = cv.getContext('2d');
@@ -660,7 +783,7 @@ FONTS.forEach((f, i) => {
 PALETTE.forEach(cName => {
   const b = document.createElement('button');
   b.type = 'button'; b.className = 'sw'; b.dataset.c = cName; b.style.background = cName;
-  b.onclick = () => { const t = selT(); if (t) { t.color = cName; $('textColorPick').value = cName; markSwatch(); draw(); } };
+  b.onclick = () => { const t = selT(); if (t) { t.color = cName; $('textColorPick').value = cName; markSwatch(); draw(); commit(); } };
   $('swatches').appendChild(b);
 });
 $('btnAddText').onclick = addText;
@@ -903,6 +1026,7 @@ function setFrame(img, name){
   updateButtons();
   fitCanvas();
   scheduleSaveRect();
+  resetHistory();
 }
 function setPhoto(img){
   S.photo = { img, w: img.naturalWidth, h: img.naturalHeight };
@@ -922,6 +1046,7 @@ function setPhoto(img){
   if (S.frame) clampPan();
   fitCanvas();
   updateButtons();
+  resetHistory();
 }
 function updateButtons(){
   // フレームあり＝写真か文字が入れば保存可。フレームなし＝写真だけでも保存可（加工写真として）
@@ -1187,7 +1312,7 @@ cv.addEventListener('pointermove', e => {
 
 function endPointer(e){
   pointers.delete(e.pointerId);
-  if (pointers.size === 0) dragState = null;
+  if (pointers.size === 0) { const had = dragState; dragState = null; if (had) commit(); }
   else if (dragState && dragState.type === 'pinch' && pointers.size === 1) {
     dragState = { type: 'pan', last: [...pointers.values()][0] };
   }
@@ -1251,6 +1376,29 @@ $('btnDownload').onclick = () => {
 };
 $('btnClose').onclick = () => $('modal').classList.remove('show');
 $('modal').addEventListener('click', e => { if (e.target === $('modal')) $('btnClose').onclick(); });
+
+/* ============ 履歴の配線（各操作の区切りでコミット） ============ */
+// スライダーは「離したとき（change）」に1手ぶんとして記録
+['angleSlider','radiusSlider','zoomSlider','textSizeSlider','textCurveSlider','textAngleSlider']
+  .forEach(id => $(id).addEventListener('change', commit));
+for (const k of ADJ_KEYS) $('adj_' + k).addEventListener('change', commit);
+// 文字入力・フォント・色・フチ・切り抜きの確定
+['textInput','fontSelect','textColorPick','outlineColorPick','textOutlineChk','maskChk']
+  .forEach(id => $(id).addEventListener('change', commit));
+// ボタン系は処理後にコミット（onclickが先に走ってから記録される）
+['btnAddText','btnDelText','btnAdjReset','btnDetect'].forEach(id => $(id).addEventListener('click', commit));
+
+$('btnUndo').onclick = undo;
+$('btnRedo').onclick = redo;
+$('btnReset').onclick = resetAll;
+// PCではCtrl/Cmd+Zで戻る、Shiftを足すとやり直し
+document.addEventListener('keydown', e => {
+  const z = (e.key === 'z' || e.key === 'Z');
+  if ((e.ctrlKey || e.metaKey) && z) {
+    e.preventDefault();
+    e.shiftKey ? redo() : undo();
+  }
+});
 
 /* ============ 動作確認用フック（通常利用では使わない） ============ */
 window.__test = {
