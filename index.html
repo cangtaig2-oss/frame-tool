@@ -7,6 +7,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>フレーム写真ツール</title>
 <style>
+  /* 夜すがら手書きフォント（作者：て！／BOOTH配布・商用可・WEB媒体OK・無改変で同梱） */
+  @font-face{ font-family:'Yosugara'; src:url('fonts/yosugara.ttf') format('truetype'); font-weight:400; font-display:swap; }
   :root{
     --ink:#1c2333; --ink-soft:#4a5266; --paper:#f7f5f0; --card:#ffffff;
     --sea:#16324f; --sea-deep:#0d2136; --moss:#3d6b5e;
@@ -47,13 +49,13 @@
   .btn.done{ border-color:var(--moss); color:var(--moss); background:#f3f7f4; }
   .btn[disabled]{ opacity:.4; pointer-events:none; box-shadow:none; }
 
-  #canvasWrap{ position:sticky; top:.5rem; z-index:2; display:flex; align-items:center; justify-content:center;
+  #canvasWrap{ position:sticky; top:.5rem; z-index:2; display:flex; flex-direction:column; align-items:center; justify-content:center;
     border-radius:var(--radius); overflow:hidden;
     background:repeating-conic-gradient(#ece9e0 0 25%, #f5f2ea 0 50%) 0 0/20px 20px;
     box-shadow:0 3px 16px rgba(22,50,79,.14); border:1px solid var(--line); min-height:200px; max-height:56vh; }
   #canvasWrap.drag{ outline:2px dashed var(--gold); outline-offset:-6px; }
   #cv{ display:block; width:auto; height:auto; max-width:100%; max-height:56vh; touch-action:none; }
-  #placeholder{ position:absolute; inset:0; display:flex; flex-direction:column; gap:.5rem;
+  #placeholder{ width:100%; display:flex; flex-direction:column; gap:.5rem;
     align-items:center; justify-content:center; text-align:center; font-size:13px;
     color:var(--ink-soft); padding:2rem; pointer-events:none; line-height:1.85; }
   #placeholder .big{ font-size:40px; opacity:.85; margin-bottom:.2rem; }
@@ -204,6 +206,7 @@
       <textarea id="textInput" rows="2" placeholder="ここに文字を入力（改行もOK）"></textarea>
       <select id="fontSelect"></select>
       <div class="sliderRow"><label>大きさ</label><input type="range" id="textSizeSlider" min="2" max="25" step="0.2" value="8"></div>
+      <div class="sliderRow"><label>太さ</label><input type="range" id="textWeight" min="0" max="100" step="1" value="0"></div>
       <div class="sliderRow"><label>カーブ</label><input type="range" id="textCurveSlider" min="-100" max="100" step="1" value="0"></div>
       <div class="sliderRow"><label>傾き</label><input type="range" id="textAngleSlider" min="-45" max="45" step="0.5" value="0"></div>
       <div class="swRow"><b>文字色</b><span id="swatches"></span><input type="color" id="textColorPick" class="colorPick" value="#ffffff"></div>
@@ -667,6 +670,7 @@ function buildOverlay(){
    残りはGoogle Fontsから必要な文字ぶんだけ読み込む（文字モードを開いたときに開始） */
 const FONTS = [
   { label: 'まるゴシック（標準）', fam: '"Hiragino Maru Gothic ProN","Zen Maru Gothic",sans-serif', w: 700, gf: 'Zen+Maru+Gothic:wght@700' },
+  { label: '夜すがら（手書き）', fam: '"Yosugara"', w: 400 },
   { label: 'キウイ丸（やさしい）', fam: '"Kiwi Maru"', w: 500, gf: 'Kiwi+Maru:wght@500' },
   { label: 'はちまるポップ（ゆる手書き）', fam: '"Hachi Maru Pop"', w: 400, gf: 'Hachi+Maru+Pop' },
   { label: 'よもぎ（ほそ手書き）', fam: '"Yomogi"', w: 400, gf: 'Yomogi' },
@@ -699,8 +703,9 @@ function fontStr(t){ const f = FONTS[t.fi]; return f.w + ' ' + t.size + 'px ' + 
 async function ensureFont(t){
   ensureFontCSS();
   const f = FONTS[t.fi];
-  if (f.gf) { try { await document.fonts.load(f.w + ' 32px ' + f.fam, t.str + 'あ0A'); } catch(e){} }
-  draw(); // フォントが届いたら描き直す
+  // Googleフォントも同梱フォント（夜すがら）も、実際に読み込んでから描き直す
+  try { await document.fonts.load(f.w + ' 32px ' + f.fam, t.str + 'あ0A'); } catch(e){}
+  draw();
 }
 function measureTextT(t){
   measCtx.font = fontStr(t);
@@ -726,8 +731,15 @@ function measureTextT(t){
   t._hh = lh * lines.length / 2 + sag / 2;
   return { lines, lh };
 }
+/* 1文字/1行を「フチ→同色で太らせ→塗り」の順で描く（extra=太らせ量px）。
+   fillStyle・lineJoin は呼び出し側で設定済み。 */
+function paintText(c, t, str, x, y, extra){
+  if (t.outline) { c.lineWidth = t.size * 0.18 + extra; c.strokeStyle = t.outlineColor; c.strokeText(str, x, y); }
+  if (extra > 0) { c.lineWidth = extra; c.strokeStyle = t.color; c.strokeText(str, x, y); }
+  c.fillText(str, x, y);
+}
 /* 1行をアーチ状に描く。curve>0で虹型（上に凸）、<0で谷型 */
-function drawArcLine(c, t, line, y0){
+function drawArcLine(c, t, line, y0, extra){
   const chars = [...line];
   if (!chars.length) return;
   const widths = chars.map(ch => c.measureText(ch).width);
@@ -741,14 +753,13 @@ function drawArcLine(c, t, line, y0){
     c.save();
     c.translate(Math.sin(a) * R, up ? y0 + R * (1 - Math.cos(a)) : y0 - R * (1 - Math.cos(a)));
     c.rotate(up ? a : -a);
-    if (t.outline) c.strokeText(chars[i], 0, 0);
-    c.fillText(chars[i], 0, 0);
+    paintText(c, t, chars[i], 0, 0, extra);
     c.restore();
     a += half;
   }
 }
 /* 縦書き：改行ごとに1列、右の列から左へ。1文字ずつ縦に積む */
-function drawVertical(c, t){
+function drawVertical(c, t, extra){
   const cols = t.str.split('\n');
   const lh = t.size * 1.05, colW = t.size * 1.35;
   const totalW = colW * cols.length;
@@ -758,8 +769,7 @@ function drawVertical(c, t){
     const totalH = lh * chars.length;
     chars.forEach((ch, i) => {
       const y = -totalH / 2 + lh / 2 + i * lh;
-      if (t.outline) c.strokeText(ch, colX, y);
-      c.fillText(ch, colX, y);
+      paintText(c, t, ch, colX, y, extra);
     });
   });
 }
@@ -784,21 +794,17 @@ function drawOneText(c, t, k){
     c.restore();
   }
   c.fillStyle = t.color;
-  if (t.outline) {
-    c.lineWidth = t.size * 0.18;
-    c.lineJoin = 'round';
-    c.strokeStyle = t.outlineColor;
-  }
+  c.lineJoin = 'round';
+  const extra = t.weight ? t.size * (t.weight / 100) * 0.2 : 0; // 太さ＝同色で太らせる量
   if (t.vertical) {
-    drawVertical(c, t);
+    drawVertical(c, t, extra);
   } else {
     m.lines.forEach((line, li) => {
       const y0 = (li - (m.lines.length - 1) / 2) * m.lh;
       if (Math.abs(t.curve) < 1) {
-        if (t.outline) c.strokeText(line, 0, y0);
-        c.fillText(line, 0, y0);
+        paintText(c, t, line, 0, y0, extra);
       } else {
-        drawArcLine(c, t, line, y0);
+        drawArcLine(c, t, line, y0, extra);
       }
     });
   }
@@ -815,7 +821,7 @@ function newTextObj(str){
   return {
     str: str, fi: 0, size: S.frame.w * 0.08,
     color: '#ffffff', outline: true, outlineColor: '#8e6aa8',
-    curve: 0, angle: 0, bgOn: false, bgColor: '#000000', bgAlpha: 60, vertical: false,
+    curve: 0, angle: 0, weight: 0, bgOn: false, bgColor: '#000000', bgAlpha: 60, vertical: false,
     x: base.cx, y: base.cy + S.texts.length * S.frame.w * 0.1,
   };
 }
@@ -833,6 +839,7 @@ function syncTextControls(){
   $('textInput').value = t.str;
   $('fontSelect').value = t.fi;
   $('textSizeSlider').value = (t.size / S.frame.w * 100).toFixed(1);
+  $('textWeight').value = t.weight || 0;
   $('textCurveSlider').value = t.curve;
   $('textAngleSlider').value = (t.angle * 180 / Math.PI).toFixed(1);
   $('textColorPick').value = t.color;
@@ -879,6 +886,7 @@ $('textInput').oninput = e => {
 };
 $('fontSelect').onchange = e => { const t = selT(); if (t) { t.fi = +e.target.value; draw(); ensureFont(t); } };
 $('textSizeSlider').oninput = e => { const t = selT(); if (t) { t.size = S.frame.w * parseFloat(e.target.value) / 100; draw(); } };
+$('textWeight').oninput = e => { const t = selT(); if (t) { t.weight = parseFloat(e.target.value); draw(); } };
 $('textCurveSlider').oninput = e => { const t = selT(); if (t) { t.curve = parseFloat(e.target.value); draw(); } };
 $('textAngleSlider').oninput = e => { const t = selT(); if (t) { t.angle = parseFloat(e.target.value) * Math.PI / 180; draw(); } };
 $('textColorPick').oninput = e => { const t = selT(); if (t) { t.color = e.target.value; markSwatch(); draw(); } };
@@ -1467,7 +1475,7 @@ $('modal').addEventListener('click', e => { if (e.target === $('modal')) $('btnC
 
 /* ============ 履歴の配線（各操作の区切りでコミット） ============ */
 // スライダーは「離したとき（change）」に1手ぶんとして記録
-['angleSlider','radiusSlider','zoomSlider','textSizeSlider','textCurveSlider','textAngleSlider']
+['angleSlider','radiusSlider','zoomSlider','textSizeSlider','textWeight','textCurveSlider','textAngleSlider']
   .forEach(id => $(id).addEventListener('change', commit));
 for (const k of ADJ_KEYS) $('adj_' + k).addEventListener('change', commit);
 // 文字入力・フォント・色・フチ・背景・切り抜きの確定
