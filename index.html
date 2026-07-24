@@ -41,17 +41,18 @@
     box-shadow:0 1px 6px rgba(22,50,79,.06); touch-action:manipulation;
     transition:border-color .2s, background .2s, transform .45s cubic-bezier(.2,.85,.3,1.08); }
   .btn:hover{ border-color:var(--gold); }
-  .btn:active{ transform:scale(.94); transition-duration:.09s; }
+  .btn:active, .btn.pressed{ transform:scale(.94); transition-duration:.09s; }
   .btn.primary{ background:var(--sea); color:#f2efe6; border-color:var(--sea); }
   .btn.primary:hover{ background:var(--sea-deep); border-color:var(--sea-deep); }
   .btn.done{ border-color:var(--moss); color:var(--moss); background:#f3f7f4; }
   .btn[disabled]{ opacity:.4; pointer-events:none; box-shadow:none; }
 
-  #canvasWrap{ position:relative; border-radius:var(--radius); overflow:hidden;
+  #canvasWrap{ position:sticky; top:.5rem; z-index:2; display:flex; align-items:center; justify-content:center;
+    border-radius:var(--radius); overflow:hidden;
     background:repeating-conic-gradient(#ece9e0 0 25%, #f5f2ea 0 50%) 0 0/20px 20px;
-    box-shadow:0 1px 8px rgba(22,50,79,.07); border:1px solid var(--line); min-height:200px; }
+    box-shadow:0 3px 16px rgba(22,50,79,.14); border:1px solid var(--line); min-height:200px; max-height:56vh; }
   #canvasWrap.drag{ outline:2px dashed var(--gold); outline-offset:-6px; }
-  #cv{ display:block; width:100%; height:auto; touch-action:none; }
+  #cv{ display:block; width:auto; height:auto; max-width:100%; max-height:56vh; touch-action:none; }
   #placeholder{ position:absolute; inset:0; display:flex; flex-direction:column; gap:.5rem;
     align-items:center; justify-content:center; text-align:center; font-size:13px;
     color:var(--ink-soft); padding:2rem; pointer-events:none; line-height:1.85; }
@@ -66,7 +67,7 @@
     font-size:.9rem; font-weight:600; color:var(--ink-soft); cursor:pointer; font-family:inherit; touch-action:manipulation;
     transition:color .2s, background .2s, transform .45s cubic-bezier(.2,.85,.3,1.08); }
   .seg button.on{ background:var(--sea); color:#f2efe6; }
-  .seg button:active{ transform:scale(.93); transition-duration:.09s; }
+  .seg button:active, .seg button.pressed{ transform:scale(.93); transition-duration:.09s; }
   .seg button[disabled]{ opacity:.4; }
 
   .sliderRow{ display:flex; align-items:center; gap:.75rem; font-size:.82rem; margin:.7rem 0; }
@@ -97,14 +98,14 @@
     box-shadow:0 0 0 1px var(--line); cursor:pointer; padding:0; touch-action:manipulation;
     transition:box-shadow .15s, transform .45s cubic-bezier(.2,.85,.3,1.08); }
   .sw.on{ box-shadow:0 0 0 2px var(--gold); }
-  .sw:active{ transform:scale(.85); transition-duration:.09s; }
+  .sw:active, .sw.pressed{ transform:scale(.85); transition-duration:.09s; }
   .colorPick{ width:34px; height:30px; border:1px solid var(--line); border-radius:7px; padding:1px; background:#fff; }
   .rowBtns{ display:flex; gap:.55rem; margin-top:.8rem; }
   .rowBtns button{ flex:1; border:1px solid var(--line); background:var(--card); color:var(--sea);
     border-radius:9px; padding:.7rem .3rem; font-size:.8rem; font-weight:600; cursor:pointer; font-family:inherit; touch-action:manipulation;
     transition:border-color .2s, background .2s, transform .45s cubic-bezier(.2,.85,.3,1.08); }
   .rowBtns button:hover{ border-color:var(--gold); background:#fcfaf5; }
-  .rowBtns button:active{ transform:scale(.95); transition-duration:.09s; }
+  .rowBtns button:active, .rowBtns button.pressed{ transform:scale(.95); transition-duration:.09s; }
   .rowBtns button[disabled]{ opacity:.4; pointer-events:none; }
   .hint{ font-size:.75rem; color:var(--ink-soft); margin:.9rem .1rem 0; line-height:1.85;
     padding:.7rem .85rem; background:var(--paper); border-left:3px solid var(--gold); border-radius:0 6px 6px 0; }
@@ -131,7 +132,11 @@
 
   @keyframes fade{ from{ opacity:0; } to{ opacity:1; } }
   @keyframes materialize{ from{ opacity:0; transform:scale(.92); } to{ opacity:1; transform:scale(1); } }
-  @media (prefers-reduced-motion:reduce){ *{ animation:none !important; transition:none !important; } }
+  /* 視差効果オフでも「押した沈み」は残す（前庭系を刺激しない微細な動きは許容）。
+     大きな動き（モーダルの出現）だけ抑える。 */
+  @media (prefers-reduced-motion:reduce){
+    #modal.show, #modal.show #modalCard{ animation-duration:.01ms !important; }
+  }
 </style>
 </head>
 <body>
@@ -161,9 +166,9 @@
 
   <div id="controls" hidden>
     <div class="rowBtns" id="historyBar">
-      <button id="btnUndo" disabled>↩️ 戻る</button>
-      <button id="btnRedo" disabled>↪️ やり直し</button>
-      <button id="btnReset">🗑 最初から</button>
+      <button id="btnUndo" disabled title="直前にやったことを1つ取り消す">↩️ 戻る</button>
+      <button id="btnRedo" disabled title="「戻る」で取り消したのを、もう一回やり直す">↪️ 進む</button>
+      <button id="btnReset" title="ぜんぶ消して最初からやり直す">🗑 最初から</button>
     </div>
     <div class="seg">
       <button id="modeFrame" class="on">🔧 枠</button>
@@ -203,6 +208,9 @@
       <div class="sliderRow"><label>傾き</label><input type="range" id="textAngleSlider" min="-45" max="45" step="0.5" value="0"></div>
       <div class="swRow"><b>文字色</b><span id="swatches"></span><input type="color" id="textColorPick" class="colorPick" value="#ffffff"></div>
       <div class="swRow"><b>フチ</b><input type="checkbox" id="textOutlineChk" checked style="width:18px;height:18px;accent-color:var(--accent);"><input type="color" id="outlineColorPick" class="colorPick" value="#8e6aa8"></div>
+      <div class="swRow"><b>背景</b><input type="checkbox" id="textBgChk" style="width:18px;height:18px;accent-color:var(--accent);"><input type="color" id="textBgColor" class="colorPick" value="#000000"></div>
+      <div class="sliderRow"><label>背景の濃さ</label><input type="range" id="textBgAlpha" min="0" max="100" step="1" value="60"></div>
+      <div class="seg" id="writeDir" style="margin-top:.7rem;"><button id="dirH" class="on">よこ書き</button><button id="dirV">たて書き</button></div>
       <div class="rowBtns">
         <button id="btnAddText">➕ 文字を追加</button>
         <button id="btnDelText" disabled>🗑 この文字を削除</button>
@@ -247,39 +255,66 @@ const S = {
 };
 let lastBlob = null, lastBlobURL = null;
 
-/* ============ 履歴（戻る / やり直し） ============ */
+/* ============ 履歴（戻る / 進む） ============ */
+/* 画面の状態まるごとを1手として記録する。画像そのもの（frame/photo/mask）は
+   参照だけ持つので戻る/進むで再読み込みは起きない。「写真を入れた」も1手＝戻せる。 */
 let undoStack = [], redoStack = [], curSnap = null;
 function snapshot(){
-  return JSON.stringify({
-    rect: S.rect, ph: S.ph, adj: S.adj,
-    texts: S.texts.map(t => ({ str:t.str, fi:t.fi, size:t.size, color:t.color,
-      outline:t.outline, outlineColor:t.outlineColor, curve:t.curve, angle:t.angle, x:t.x, y:t.y })),
-    selText: S.selText, maskOn: S.maskOn,
-  });
+  return {
+    frame: S.frame, photo: S.photo, photoOrig: S.photoOrig,
+    rect: S.rect ? { ...S.rect } : null,
+    ph: { ...S.ph }, adj: { ...S.adj },
+    texts: S.texts.map(t => ({ ...t })),
+    selText: S.selText, mask: S.mask, maskOn: S.maskOn, mode: S.mode,
+  };
+}
+function sameSnap(a, b){
+  if (!a || !b) return false;
+  return a.frame === b.frame && a.photo === b.photo && a.photoOrig === b.photoOrig &&
+    a.mask === b.mask && a.maskOn === b.maskOn && a.mode === b.mode && a.selText === b.selText &&
+    JSON.stringify(a.rect) === JSON.stringify(b.rect) &&
+    JSON.stringify(a.ph) === JSON.stringify(b.ph) &&
+    JSON.stringify(a.adj) === JSON.stringify(b.adj) &&
+    JSON.stringify(a.texts) === JSON.stringify(b.texts);
 }
 function commit(){
   const s = snapshot();
-  if (curSnap === null) { curSnap = s; updateUndoButtons(); return; }
-  if (s === curSnap) return;
-  undoStack.push(curSnap);
-  if (undoStack.length > 60) undoStack.shift();
+  if (curSnap && sameSnap(s, curSnap)) return;
+  if (curSnap) { undoStack.push(curSnap); if (undoStack.length > 60) undoStack.shift(); }
   redoStack = [];
   curSnap = s;
   updateUndoButtons();
 }
 function resetHistory(){ undoStack = []; redoStack = []; curSnap = snapshot(); updateUndoButtons(); }
-function restoreSnap(str){
-  const v = JSON.parse(str);
-  S.rect = v.rect; S.ph = v.ph || { scale:1, dx:0, dy:0 }; S.adj = v.adj || adjDefaults();
-  S.texts = v.texts || []; S.selText = (v.selText == null ? -1 : v.selText); S.maskOn = !!v.maskOn;
-  adjCache = null;
-  if (S.maskOn && !S.mask && S.frame) S.mask = buildMaskCanvas(detectPanel(S.frame.img), S.frame.w, S.frame.h);
+function restoreSnap(s){
+  S.frame = s.frame; S.photo = s.photo; S.photoOrig = s.photoOrig;
+  S.rect = s.rect ? { ...s.rect } : null;
+  S.ph = { ...s.ph }; S.adj = { ...s.adj };
+  S.texts = s.texts.map(t => ({ ...t }));
+  S.selText = s.selText; S.mask = s.mask; S.maskOn = s.maskOn; S.mode = s.mode;
+  adjCache = null; maskTmp = null;
+  rebuildUI();
+}
+/* 現在の状態から画面まわり（ステップボタン・パネル・キャンバス）を組み直す */
+function rebuildUI(){
+  const hasFrame = !!S.frame, hasPhoto = !!S.photo;
+  if (hasFrame || hasPhoto) { $('placeholder').style.display = 'none'; $('controls').hidden = false; }
+  else { $('placeholder').style.display = ''; $('controls').hidden = true; }
+  $('btnFrame').classList.toggle('done', hasFrame);
+  $('btnPhoto').classList.toggle('done', hasPhoto);
+  $('modeFrame').disabled = !hasFrame;
+  $('modePhoto').disabled = !hasPhoto;
+  $('modeText').disabled = !hasFrame;
+  $('btnRestoreBg').hidden = !S.photoOrig;
   $('maskChk').checked = S.maskOn;
+  overlayCanvas = null;
+  if (hasFrame && S.rect) buildOverlay();
   syncSliders(); syncAdjSliders(); syncTextControls();
-  $('rowRadius').hidden = (S.mode !== 'frame') || S.maskOn;
-  if (S.frame && S.rect) buildOverlay();
-  clampPan(); draw();
-  if (S.frame && S.rect) scheduleSaveRect();
+  updateButtons();
+  if (hasPhoto && S.rect) clampPan();
+  if (hasFrame || hasPhoto) { setMode(S.mode); fitCanvas(); }
+  else { cv.width = 10; cv.height = 10; ctx.clearRect(0, 0, cv.width, cv.height); }
+  if (hasFrame && S.rect) scheduleSaveRect();
   updateUndoButtons();
 }
 function undo(){ if (!undoStack.length) return; redoStack.push(curSnap); curSnap = undoStack.pop(); restoreSnap(curSnap); }
@@ -296,17 +331,8 @@ function resetAll(){
   S.ph = { scale:1, dx:0, dy:0 }; S.adj = adjDefaults(); adjCache = null;
   S.texts = []; S.selText = -1; S.photoOrig = null; S.mode = 'frame';
   overlayCanvas = null; maskTmp = null;
-  $('controls').hidden = true;
-  $('placeholder').style.display = '';
-  $('btnFrame').classList.remove('done');
-  $('btnPhoto').classList.remove('done');
-  $('btnRestoreBg').hidden = true;
-  $('modePhoto').disabled = true;
-  $('modeText').disabled = true;
-  setMode('frame');
-  updateButtons();
-  cv.width = 10; cv.height = 10; ctx.clearRect(0, 0, cv.width, cv.height);
-  undoStack = []; redoStack = []; curSnap = null;
+  rebuildUI();
+  undoStack = []; redoStack = []; curSnap = snapshot();
   updateUndoButtons();
 }
 
@@ -386,6 +412,7 @@ async function cutBackground(){
     $('btnRestoreBg').hidden = false;
     fitCanvas(); // 写真だけモードでは解像度が変わるため作り直し
     hint.textContent = '✂️ 背景を消しました！透けた部分にはフレームの地の色が見えます。「↩️ 元に戻す」でいつでも戻せます。';
+    commit();
   } catch(e) {
     hint.textContent = oldHint;
     alert('背景の切り抜きに失敗しました🙏\n電波の良い場所で、もう一度「✂️ 背景を消す」を押してみてください。');
@@ -402,6 +429,7 @@ $('btnRestoreBg').onclick = () => {
   S.photoOrig = null;
   $('btnRestoreBg').hidden = true;
   fitCanvas();
+  commit();
 };
 
 /* フレームの指紋（同じフレームを記憶するためのキー） */
@@ -677,6 +705,15 @@ async function ensureFont(t){
 function measureTextT(t){
   measCtx.font = fontStr(t);
   const lines = t.str.split('\n');
+  if (t.vertical) {
+    // 縦書き：改行ごとに1列、右から左へ並べる
+    const lh = t.size * 1.05, colW = t.size * 1.35;
+    let maxLen = 1;
+    for (const l of lines) maxLen = Math.max(maxLen, [...l].length);
+    t._hw = colW * lines.length / 2;
+    t._hh = lh * maxLen / 2;
+    return { lines, lh };
+  }
   const lh = t.size * 1.25;
   let wMax = 1;
   for (const l of lines) wMax = Math.max(wMax, measCtx.measureText(l).width);
@@ -710,6 +747,22 @@ function drawArcLine(c, t, line, y0){
     a += half;
   }
 }
+/* 縦書き：改行ごとに1列、右の列から左へ。1文字ずつ縦に積む */
+function drawVertical(c, t){
+  const cols = t.str.split('\n');
+  const lh = t.size * 1.05, colW = t.size * 1.35;
+  const totalW = colW * cols.length;
+  cols.forEach((col, ci) => {
+    const chars = [...col];
+    const colX = totalW / 2 - colW / 2 - ci * colW;
+    const totalH = lh * chars.length;
+    chars.forEach((ch, i) => {
+      const y = -totalH / 2 + lh / 2 + i * lh;
+      if (t.outline) c.strokeText(ch, colX, y);
+      c.fillText(ch, colX, y);
+    });
+  });
+}
 function drawOneText(c, t, k){
   const m = measureTextT(t);
   if (!t.str.trim()) return;
@@ -720,21 +773,35 @@ function drawOneText(c, t, k){
   c.font = fontStr(t);
   c.textAlign = 'center';
   c.textBaseline = 'middle';
+  // 文字の背景板（透過はbgAlphaで0〜100%）
+  if (t.bgOn && t.bgAlpha > 0) {
+    const padX = t.size * 0.35, padY = t.size * 0.22;
+    c.save();
+    c.globalAlpha = Math.min(1, t.bgAlpha / 100);
+    c.fillStyle = t.bgColor;
+    roundRectPath(c, -(t._hw + padX), -(t._hh + padY), (t._hw + padX) * 2, (t._hh + padY) * 2, t.size * 0.25);
+    c.fill();
+    c.restore();
+  }
   c.fillStyle = t.color;
   if (t.outline) {
     c.lineWidth = t.size * 0.18;
     c.lineJoin = 'round';
     c.strokeStyle = t.outlineColor;
   }
-  m.lines.forEach((line, li) => {
-    const y0 = (li - (m.lines.length - 1) / 2) * m.lh;
-    if (Math.abs(t.curve) < 1) {
-      if (t.outline) c.strokeText(line, 0, y0);
-      c.fillText(line, 0, y0);
-    } else {
-      drawArcLine(c, t, line, y0);
-    }
-  });
+  if (t.vertical) {
+    drawVertical(c, t);
+  } else {
+    m.lines.forEach((line, li) => {
+      const y0 = (li - (m.lines.length - 1) / 2) * m.lh;
+      if (Math.abs(t.curve) < 1) {
+        if (t.outline) c.strokeText(line, 0, y0);
+        c.fillText(line, 0, y0);
+      } else {
+        drawArcLine(c, t, line, y0);
+      }
+    });
+  }
   c.restore();
 }
 function drawTexts(c, k){ for (const t of S.texts) drawOneText(c, t, k); }
@@ -743,18 +810,21 @@ function localOfText(p, t){
   const co = Math.cos(t.angle), si = Math.sin(t.angle);
   return { x: dx*co + dy*si, y: -dx*si + dy*co };
 }
-function addText(){
-  if (!S.frame) return;
+function newTextObj(str){
   const base = S.rect || { cx: S.frame.w / 2, cy: S.frame.h / 2 };
-  const t = {
-    str: 'テキスト', fi: 0, size: S.frame.w * 0.08,
+  return {
+    str: str, fi: 0, size: S.frame.w * 0.08,
     color: '#ffffff', outline: true, outlineColor: '#8e6aa8',
-    curve: 0, angle: 0,
+    curve: 0, angle: 0, bgOn: false, bgColor: '#000000', bgAlpha: 60, vertical: false,
     x: base.cx, y: base.cy + S.texts.length * S.frame.w * 0.1,
   };
+}
+function addText(){
+  if (!S.frame) return;
+  const t = newTextObj('テキスト');
   S.texts.push(t);
   S.selText = S.texts.length - 1;
-  syncTextControls(); updateButtons(); ensureFont(t); draw();
+  syncTextControls(); updateButtons(); ensureFont(t); draw(); commit();
 }
 function syncTextControls(){
   const t = selT();
@@ -768,6 +838,11 @@ function syncTextControls(){
   $('textColorPick').value = t.color;
   $('textOutlineChk').checked = t.outline;
   $('outlineColorPick').value = t.outlineColor;
+  $('textBgChk').checked = !!t.bgOn;
+  $('textBgColor').value = t.bgColor || '#000000';
+  $('textBgAlpha').value = (t.bgAlpha != null ? t.bgAlpha : 60);
+  $('dirH').classList.toggle('on', !t.vertical);
+  $('dirV').classList.toggle('on', !!t.vertical);
   markSwatch();
 }
 function markSwatch(){
@@ -793,7 +868,15 @@ $('btnDelText').onclick = () => {
   S.selText = S.texts.length - 1;
   syncTextControls(); updateButtons(); draw();
 };
-$('textInput').oninput = e => { const t = selT(); if (t) { t.str = e.target.value; draw(); ensureFont(t); } };
+$('textInput').oninput = e => {
+  let t = selT();
+  if (!t && S.frame) { // 選択中の文字が無ければ、打った瞬間にその場で1つ作る
+    t = newTextObj('');
+    S.texts.push(t); S.selText = S.texts.length - 1;
+    $('btnDelText').disabled = false; updateButtons();
+  }
+  if (t) { t.str = e.target.value; draw(); ensureFont(t); }
+};
 $('fontSelect').onchange = e => { const t = selT(); if (t) { t.fi = +e.target.value; draw(); ensureFont(t); } };
 $('textSizeSlider').oninput = e => { const t = selT(); if (t) { t.size = S.frame.w * parseFloat(e.target.value) / 100; draw(); } };
 $('textCurveSlider').oninput = e => { const t = selT(); if (t) { t.curve = parseFloat(e.target.value); draw(); } };
@@ -801,6 +884,11 @@ $('textAngleSlider').oninput = e => { const t = selT(); if (t) { t.angle = parse
 $('textColorPick').oninput = e => { const t = selT(); if (t) { t.color = e.target.value; markSwatch(); draw(); } };
 $('textOutlineChk').onchange = e => { const t = selT(); if (t) { t.outline = e.target.checked; draw(); } };
 $('outlineColorPick').oninput = e => { const t = selT(); if (t) { t.outlineColor = e.target.value; draw(); } };
+$('textBgChk').onchange = e => { const t = selT(); if (t) { t.bgOn = e.target.checked; draw(); } };
+$('textBgColor').oninput = e => { const t = selT(); if (t) { t.bgColor = e.target.value; if (!t.bgOn) { t.bgOn = true; $('textBgChk').checked = true; } draw(); } };
+$('textBgAlpha').oninput = e => { const t = selT(); if (t) { t.bgAlpha = parseFloat(e.target.value); if (!t.bgOn) { t.bgOn = true; $('textBgChk').checked = true; } draw(); } };
+$('dirH').onclick = () => { const t = selT(); if (t) { t.vertical = false; $('dirH').classList.add('on'); $('dirV').classList.remove('on'); draw(); commit(); } };
+$('dirV').onclick = () => { const t = selT(); if (t) { t.vertical = true; $('dirV').classList.add('on'); $('dirH').classList.remove('on'); draw(); commit(); } };
 
 /* ============ 描画 ============ */
 function roundRectPath(c, x, y, w, h, r){
@@ -1026,7 +1114,7 @@ function setFrame(img, name){
   updateButtons();
   fitCanvas();
   scheduleSaveRect();
-  resetHistory();
+  commit();
 }
 function setPhoto(img){
   S.photo = { img, w: img.naturalWidth, h: img.naturalHeight };
@@ -1046,7 +1134,7 @@ function setPhoto(img){
   if (S.frame) clampPan();
   fitCanvas();
   updateButtons();
-  resetHistory();
+  commit();
 }
 function updateButtons(){
   // フレームあり＝写真か文字が入れば保存可。フレームなし＝写真だけでも保存可（加工写真として）
@@ -1382,8 +1470,9 @@ $('modal').addEventListener('click', e => { if (e.target === $('modal')) $('btnC
 ['angleSlider','radiusSlider','zoomSlider','textSizeSlider','textCurveSlider','textAngleSlider']
   .forEach(id => $(id).addEventListener('change', commit));
 for (const k of ADJ_KEYS) $('adj_' + k).addEventListener('change', commit);
-// 文字入力・フォント・色・フチ・切り抜きの確定
-['textInput','fontSelect','textColorPick','outlineColorPick','textOutlineChk','maskChk']
+// 文字入力・フォント・色・フチ・背景・切り抜きの確定
+['textInput','fontSelect','textColorPick','outlineColorPick','textOutlineChk','maskChk',
+ 'textBgChk','textBgColor','textBgAlpha']
   .forEach(id => $(id).addEventListener('change', commit));
 // ボタン系は処理後にコミット（onclickが先に走ってから記録される）
 ['btnAddText','btnDelText','btnAdjReset','btnDetect'].forEach(id => $(id).addEventListener('click', commit));
@@ -1399,6 +1488,18 @@ document.addEventListener('keydown', e => {
     e.shiftKey ? redo() : undo();
   }
 });
+// タッチでも確実に「押した沈み」を出す（iOS Safari は :active が効きにくい）
+{
+  const pressSel = '.btn, .seg button, .rowBtns button, .sw';
+  document.addEventListener('pointerdown', e => {
+    const b = e.target.closest(pressSel);
+    if (b && !b.disabled) b.classList.add('pressed');
+  }, true);
+  const clearPressed = () => document.querySelectorAll('.pressed').forEach(b => b.classList.remove('pressed'));
+  ['pointerup','pointercancel','pointerleave'].forEach(ev => document.addEventListener(ev, clearPressed, true));
+}
+// 何も読み込んでいない空の状態を履歴の起点にする（＝フレーム/写真の読み込みも戻せる）
+resetHistory();
 
 /* ============ 動作確認用フック（通常利用では使わない） ============ */
 window.__test = {
